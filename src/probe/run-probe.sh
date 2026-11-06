@@ -125,8 +125,10 @@ fi
 
 # Mixer (before the player: the loopback runs on the controller's clock) and
 # controller bridge (UCOM frames on $STATE/tmp/azbridge.sock), if built.
+# The preview goes to the headphones only, as on the AZ (azmix -p would also
+# put it on the master).
 [ -x /opt/xdjaz/mixer/azmix ] && ! pgrep -x azmix >/dev/null &&
-  sudo setsid /opt/xdjaz/mixer/azmix -p > /opt/xdjaz/mixer/azmix.log 2>&1 < /dev/null &
+  sudo setsid /opt/xdjaz/mixer/azmix > /opt/xdjaz/mixer/azmix.log 2>&1 < /dev/null &
 [ -x /opt/xdjaz/bridge/azbridge ] && ! pgrep -x azbridge >/dev/null &&
   setsid /opt/xdjaz/bridge/azbridge -v ${AZBRIDGE_OPTS:-} -s "$STATE/tmp/azbridge.sock" \
     > /opt/xdjaz/bridge/azbridge.log 2>&1 < /dev/null &

@@ -83,6 +83,8 @@ stick: it shows in SOURCE as USB1.
   stays. The GRV6's eight beat lamps show the chosen beat.
 - **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
+  The track preview (touch preview in the browser) plays in the headphones
+  only, as on the AZ.
 - **USB sticks** come and go while playing. A stick is mounted read-only and
   the player writes to a copy of its database in memory: your stick is never
   changed.
