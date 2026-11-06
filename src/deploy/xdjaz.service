@@ -1,0 +1,29 @@
+[Unit]
+Description=xdjaz - XDJ-AZ player (EP147 1.30) on the panel with the DDJ-GRV6 or DDJ-FLX4
+# Started from the boot menu (rblaunch), never at boot. It holds the display,
+# the controller, the touch panel and the sound cards, like every other system
+# on this Pi: starting it stops them, starting them stops it (Conflicts= works
+# both ways, so their units need no change).
+Conflicts=rblaunch.service rblive4.service rblive4-boot.service engineos.service stembox.service
+# Stop the others before starting (Conflicts= alone orders nothing). This side
+# of each pair; rblaunch orders itself After= this unit. No cycle:
+# engineos < rblive4-boot < rblive4 < stembox < xdjaz < rblaunch.
+After=rblive4.service rblive4-boot.service engineos.service stembox.service
+# Back to the menu when the player ends or fails -- through rblaunch-idle, which
+# does nothing if another system is what stopped us.
+OnSuccess=rblaunch-idle.service
+OnFailure=rblaunch-idle.service
+
+[Service]
+Type=simple
+User=alex
+# Root for the loopback card; run-probe.sh takes root through sudo only for
+# Xorg, the touch filter, the USB sticks and the mixer's realtime priority.
+ExecStartPre=+/bin/sh /opt/xdjaz/xdjaz-prep.sh start
+ExecStart=/bin/sh -c 'cd /opt/xdjaz && XORG=1 exec /bin/bash ./run-probe.sh 0'
+ExecStopPost=+/bin/sh /opt/xdjaz/xdjaz-prep.sh stop
+# Everything run-probe.sh started is in this unit's cgroup and is stopped with
+# it (Xorg gives the console back on SIGTERM).
+KillMode=control-group
+TimeoutStopSec=8
+SyslogIdentifier=xdjaz

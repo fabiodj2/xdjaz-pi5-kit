@@ -1,0 +1,243 @@
+# XDJ-AZ on a Raspberry Pi 5
+
+**English** · [Русский](README.ru.md) · [Українська](README.uk.md)
+
+Run the stock XDJ-AZ player (firmware **1.30**) on a Raspberry Pi 5 with a
+**DDJ-GRV6** (4 decks) or **DDJ-FLX4** (2 decks). It is the very player the AZ
+runs: its screen, the rekordbox library browser, waveforms, hot cues, loops,
+Beat FX, sync. What a Pi lacks compared to the AZ (the panel's
+microcontrollers, the hardware mixer, the deck's kernel) is replaced by the
+programs in this repository.
+
+From "I have the 1.30 image" to a Pi that boots into the player: one command.
+
+## What you need
+
+| | |
+|---|---|
+| Raspberry Pi 5 | 4 or 8 GB; SD card or SSD of 32 GB or more (the player makes itself ~10 GB of cache files) |
+| Raspberry Pi OS Lite **64-bit** (Debian 13 trixie) | no desktop: the player owns the screen and the controller. A user with password-less `sudo` (the default for Pi OS's first user), in the `audio`, `video` and `input` groups |
+| Screen | HDMI; set up for a 1024×600 touch panel. Other screens: see [Another screen](#another-screen) |
+| Controller | DDJ-GRV6 or DDJ-FLX4 over USB. With both plugged in, the GRV6 is used |
+| Firmware image | `XDJAZv130.iso`, the **decrypted** 1.30 update image (ISO 9660, label `UsbAuto`). Not included |
+| OneLibrary key | a file with one line. Without it a stick shows only folders, no playlists or library. The key is the same for every deck; ours comes from [AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods), which opens the library with it in its emulator. Not included |
+| USB stick | a rekordbox export with OneLibrary (`PIONEER/rekordbox/exportLibrary.db`); the 1.30 player does not read the older `export.pdb` |
+| AZ-MODS (optional) | `mods-vX.Y.Z.tar.gz` from the [AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods) releases: Mod Menu, stems, playlist editing, themes |
+
+## Quick start
+
+**1. The Pi.** Write Raspberry Pi OS Lite 64-bit with Raspberry Pi Imager,
+with SSH on. Boot it, plug in the screen and the controller.
+
+**2. The kit, the image and the key on the Pi** (`pi` is your Pi's address):
+
+```sh
+ssh pi git clone https://github.com/r1x0s/xdjaz-pi5-kit
+scp XDJAZv130.iso onelibrary.key pi:
+scp mods-v1.2.8.tar.gz pi:          # for AZ-MODS
+```
+
+**3. Install** (on the Pi):
+
+```sh
+cd ~/xdjaz-pi5-kit
+sudo ./scripts/setup-pi.sh --iso ~/XDJAZv130.iso --key ~/onelibrary.key
+#   add --azmods ~/mods-v1.2.8.tar.gz for AZ-MODS
+```
+
+The script installs the packages, extracts the player's file system from the
+image into `/opt/xdjaz/rootfs` (and checks that it is 1.30), builds our
+programs on the Pi, puts everything in `/opt/xdjaz` and installs the
+`xdjaz.service` unit. A few minutes, mostly `apt`. It can be run again: it
+rebuilds and reinstalls everything but the player and its settings.
+
+**4. Reboot** (`sudo reboot`). The Pi now boots straight into the player; the
+console login on tty1 is turned off, as it would share the screen. To start
+the player by hand instead, install with `--no-autostart`.
+
+About 8 seconds after the service starts the player is on screen. Plug in a
+stick: it shows in SOURCE as USB1.
+
+- The **controller** can be plugged in later: until it is there, the service
+  tries again every few seconds.
+- If the **player ends or crashes**, it is started again after 3 seconds.
+- **Stop** it: `sudo systemctl stop xdjaz` (until the next boot). No autostart
+  at all: `sudo systemctl disable xdjaz && sudo systemctl enable getty@tty1`.
+- While the player runs, the Pi's console is reached over SSH.
+
+## What works
+
+- **The controller.** Every deck button, the pads, the jog (scratch, pitch
+  bend, search), tempo, loops, hot cues, BEAT SYNC / MASTER, KEY SYNC, SLIP,
+  QUANTIZE, the browser. The LEDs follow the player, as on the AZ. At start
+  the player knows where every knob and fader is (the controller reports them
+  on request).
+- **4 decks on the GRV6.** The DECK button switches a side to deck 3/4, and
+  the player switches with it.
+- **The mixer.** Trim, a 3-band isolator, channel faders, crossfader
+  (channels 1/3 on A, 2/4 on B), CUE, the level meters on the controller.
+- **COLOR FX.** SMART CFX press: on/off; with SHIFT: the next effect. The GRV6
+  has a knob per channel.
+- **Beat FX.** All 14 of the player's effects, beat, level, channel. On a
+  channel the effect comes after the fader: pull the fader and the echo's tail
+  stays. The GRV6's eight beat lamps show the chosen beat.
+- **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
+  knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
+- **USB sticks** come and go while playing. A stick is mounted read-only and
+  the player writes to a copy of its database in memory: your stick is never
+  changed.
+
+### Mapping that is not obvious
+
+| Controller | On the AZ |
+|---|---|
+| Pad modes HOT CUE, BEAT JUMP | as printed |
+| PAD FX1 / STEMS | BEAT LOOP |
+| SAMPLER | SLIP LOOP |
+| SHIFT + BEAT JUMP (BEAT LOOP) | BEAT LOOP |
+| 4 BEAT / EXIT | a 4-beat loop, or out of the loop if one is playing |
+| SMART FADER (FLX4), DISCOVER (GRV6) | SOURCE |
+| VIEW (GRV6) | BROWSE |
+| Browse tilt (GRV6) | up/down: a row (with SHIFT: a page); left: BACK; right: select |
+| SHIFT + SLIP (VINYL) | JOG MODE |
+| SHIFT + MEMORY | delete a cue |
+| DRUM RELEASE lever (GRV6) | while tilted, the deck's channel slows to a stop like a record |
+| Beat FX knob (GRV6): LC ECHO, PITCH, MOBIUS saw, MOBIUS tri | PING PONG, TRIPLET FILTER, MOBIUS, TRIPLET ROLL (the AZ has none of the four) |
+| BEAT < > | 1/8, 1/4, 1/2, 3/4, 1, 2, 4, 8 |
+| SHIFT + SMART FADER (FLX4) / SHIFT + BACK (GRV6), held 2 s | back to the system menu, when the Pi runs several DJ systems under our launcher; nothing otherwise |
+
+## AZ-MODS
+
+With `--azmods` the player runs with the mods: their `azmod.so` and
+`azstem.so` are loaded into it as on an AZ. **MOD MENU** shows in SOURCE.
+Stems: turn Stems on in the menu and make the stems with their desktop app,
+which puts them on the stick in `STEMS/`. The mods' USB loader, their
+self-update and SSH are not used here; `setup-pi.sh` installs the mods, run it
+again with a newer archive to update.
+
+To run without the mods: `AZMODS=0` (see [Settings](#settings)).
+
+## Settings
+
+Environment variables of the service. Create
+`/etc/systemd/system/xdjaz.service.d/local.conf`:
+
+```ini
+[Service]
+Environment=PANEL=fit
+```
+
+then `sudo systemctl daemon-reload && sudo systemctl restart xdjaz`.
+
+| Variable | Values |
+|---|---|
+| `PANEL` | how the 1280×800 UI fits a 1024×600 screen: `juce` (default: exact proportions, bars at the sides), `fit` (full screen, 6% squashed in height), `stretch`, `panel`. Details: `src/docs/panel.md` (in Russian) |
+| `REFRESH` | screen refresh, default 59.24 Hz like the AZ's: the waveforms run smoothest at it |
+| `COMP` | compositor: `0` none, `glx`, `xrender`; with AZ-MODS the default is `glx` |
+| `AZMODS` | `0`: the player without the mods |
+| `AZ_CARD` | the controller's sound card name, if detection picks the wrong one |
+
+## Another screen
+
+Three things in `/opt/xdjaz/xorg-az.conf` (source: `src/probe/xorg-az.conf`)
+are set for the 1024×600 panel:
+
+- `Modeline` and `PreferredMode`: the panel's mode. For another screen remove
+  them (X takes the mode from EDID) and set `PANEL=panel` if the screen does
+  1280×800 itself.
+- `CalibrationMatrix` turns touches by 180°: our panel's touch sensor is
+  turned against its picture. If touches land right on your screen without
+  it, remove that section.
+- `kmsdev /dev/dri/card1`: the Pi 5's video output, leave it.
+
+The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75).
+
+## How it works
+
+```
+ controller (MIDI) ──► azbridge ──UCOM frames──► azshim ─┐
+        ▲                │                                │   EP147 (the AZ 1.30 player)
+        └──── LEDs ◄─────┘◄──── TX frames (LEDs) ─────────┤   in bwrap, root = /opt/xdjaz/rootfs
+                                                          │
+ controller audio ◄── azmix ◄── snd-aloop "ALPHATHETAD810" ◄── 8 deck channels + preview
+```
+
+| Program | Stands in for |
+|---|---|
+| `EP147` | the player from the firmware, unchanged. It runs in `bwrap`: its own root, user 0 in its own namespace, no network, a minimal `/dev` |
+| `azshim.so` | the AZ's kernel: connects the player to the bridge instead of the microcontrollers, USB stick events, the OneLibrary key, small drawing fixes |
+| `azbridge` | the AZ panel's microcontrollers: button and knob frames from the controller's MIDI, controller LEDs from the player's frames. It also runs the Beat FX, as the AZ's mixer processor does |
+| `azmix` | the AZ's hardware mixer: EQ, COLOR FX, faders, Beat FX, CUE, out to the controller's sound card in real time |
+| `aztouch` | a filter for the panel's touch glitches |
+| `azvsync` | the screen's frame times, which the player paints by |
+| `xdjaz-usb.sh` | USB stick hot-plug |
+| `xdjaz-prep.sh`, `xdjaz.service` | the audio loopback on the controller's clock, start and stop |
+
+The AZ's microcontroller protocol (UCOM frames) is described in
+`src/bridge/UCOM-PROTOCOL.md`.
+
+## Repository
+
+```
+scripts/extract-rootfs.sh  1.30 image -> the player's file system (any Linux)
+scripts/setup-pi.sh        install on the Pi
+systemd/xdjaz.service      the service: player at boot, restart, waits for the controller
+src/                       the sources of our programs
+make-kit.sh                for the author: refreshes src/ from the author's working tree
+```
+
+`extract-rootfs.sh` works on its own too:
+`./scripts/extract-rootfs.sh XDJAZv130.iso ./rootfs` takes
+`images/images.tar.gz` out of the image, the deck's kernel out of that, the
+kernel's built-in initramfs (the whole AZ system) out of the kernel, and
+checks the player's md5.
+
+## Troubleshooting
+
+| Where | What |
+|---|---|
+| `journalctl -u xdjaz` | service start and stop |
+| `/opt/xdjaz/ep147.log` | the player's output |
+| `/opt/xdjaz/bridge/azbridge.log` | the controller: which one, frame connections, unknown messages |
+| `/opt/xdjaz/mixer/azmix.log` | audio |
+| `/opt/xdjaz/xdjaz-usb.log` | USB sticks |
+| `/opt/xdjaz/xorg.log` | the screen |
+
+- **No player, `no controller` repeating in the journal**: the controller is
+  not plugged in or not seen as a sound card (`cat /proc/asound/cards` should
+  list `DDJGRV6` or `DDJFLX4`).
+- **Only folders on the stick**: no OneLibrary key
+  (`/opt/xdjaz/keys/onelibrary.key`), or no `exportLibrary.db` on the stick
+  (export again with a current rekordbox).
+- **Suspect the mods**: `AZMODS=0`.
+- **A screenshot** without a camera: `/opt/xdjaz/tools/shot.py out.png`.
+- **Press controller buttons from a shell**: add
+  `Environment="AZBRIDGE_OPTS=-t /opt/xdjaz/bridge/tx.log -i /opt/xdjaz/state/azbridge.in"`
+  to `local.conf`; then `echo "96 41 7F" > /opt/xdjaz/state/azbridge.in` acts
+  as if it came from the controller, and `tx.log` records everything the
+  player sends.
+
+## Limits
+
+- Firmware **1.30** only: the fixes and maps are made for this player build
+  (md5 `3518275e8b4d5d63636d8d7b4468d7ba`); the script refuses any other.
+- The player runs without a network: no streaming, Pro DJ Link or updates.
+- No Bluetooth, no automatic sleep.
+- The "1/3 1/2 2/3" hint on the BEAT FX panel is drawn by the player itself;
+  BEAT < > never land on 1/3 or 2/3.
+
+## Legal
+
+This repository holds only its own programs, scripts and documentation. It
+contains no firmware, no part of the player, no key and no AZ-MODS file, and
+none of them may be added to it. You need your own copy of the firmware and
+are responsible for using it lawfully. Not affiliated with AlphaTheta or
+Pioneer DJ; XDJ-AZ, DDJ-GRV6, DDJ-FLX4 and rekordbox are their trademarks.
+AZ-MODS is a separate project under its own license (GPL-3.0).
+
+## License
+
+Non-commercial use with attribution: see [LICENSE](LICENSE). Use in your
+own projects with a credit to the author.
+
+Author: [r1x0s](https://github.com/r1x0s)

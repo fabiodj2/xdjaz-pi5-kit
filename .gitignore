@@ -1,0 +1,8 @@
+# Never in this repository: firmware, the player, keys, AZ-MODS files
+*.iso
+*.UPD
+*.key
+rootfs/
+azmod.so
+azstem.so
+mods-v*.tar.gz

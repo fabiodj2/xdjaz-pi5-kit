@@ -1,0 +1,32 @@
+[Unit]
+Description=xdjaz - XDJ-AZ player (EP147 1.30) with the DDJ-GRV6 or DDJ-FLX4
+# The kit's unit: the player is the only thing on this Pi's screen, started at
+# boot and started again whenever it ends or fails (for the boot-menu setup
+# see az-pi5/deploy/xdjaz.service instead).
+After=systemd-udev-settle.service sound.target local-fs.target
+# The tty1 login would share the screen with the player's X (setup-pi.sh turns
+# it off; this keeps the two apart should it be started by hand).
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+# Keep trying for as long as it takes: the controller may come up seconds
+# after boot, or be plugged in later (xdjaz-prep.sh fails without it).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+# Root for the loopback card; run-probe.sh takes root through sudo only for
+# Xorg, the touch filter, the USB sticks and the mixer's realtime priority.
+ExecStartPre=+/bin/sh /opt/xdjaz/xdjaz-prep.sh start
+ExecStart=/bin/sh -c 'cd /opt/xdjaz && XORG=1 exec /bin/bash ./run-probe.sh 0'
+ExecStopPost=+/bin/sh /opt/xdjaz/xdjaz-prep.sh stop
+Restart=always
+RestartSec=3
+# Everything run-probe.sh started is in this unit's cgroup and is stopped with
+# it (Xorg gives the console back on SIGTERM).
+KillMode=control-group
+TimeoutStopSec=8
+SyslogIdentifier=xdjaz
+
+[Install]
+WantedBy=multi-user.target

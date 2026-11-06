@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stand-in for Ubuntu's dconf, for the player's JUCE (5.3.2). On Linux JUCE
+# asks `dconf read /com/ubuntu/user-interface/scale-factor` for a per-output
+# scale, as {'OUTPUT': n} with scale = n / 8. Answering 6 makes the player draw
+# its 1280x800 UI at 0.75, i.e. 960x600, crisp on the 1024x600 panel.
+# AZ_SCALE8 overrides n (8 = 1:1; fractions work: 6.4 = 0.8).
+n=${AZ_SCALE8:-6}
+echo "{'HDMI-1': $n, 'HDMI-2': $n, 'DSI-1': $n}"
