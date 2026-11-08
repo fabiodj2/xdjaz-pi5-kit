@@ -1,9 +1,9 @@
 # XDJ-AZ (fw 1.30) player <-> UCOM protocol
 
 Static analysis of `XDJAZ/v130/rootfs/home/root/pdj/EP147` (aarch64, non-PIE, base 0x400000) and
-`subucom_read`. Nothing was run. The IDA database and scratch output are in
-`/tmp/claude-1000/-home-alex-Work-Projects-standalonedj/a16a33ae-f1b6-40d5-a026-32d761692c22/scratchpad/ucom/`
-(`EP147.i64`, full disassembly `all.s`, helper scripts).
+`subucom_read`. Nothing was run. The IDA database and scratch output
+(`EP147.i64`, full disassembly `all.s`, helper scripts) stayed in a local
+scratch folder.
 
 Confidence marks:
 - **[C] confirmed**: read directly from code. The address is given.
