@@ -260,7 +260,8 @@ rekordbox — їхні торговельні марки. AZ-MODS — окрем
 
 ## Подяки
 
-[fabiodj2](https://github.com/fabiodj2) — за допомогу з питанням.
+[fabiodj2](https://github.com/fabiodj2) (в Instagram:
+[@fabiodj2](https://www.instagram.com/fabiodj2)) — за допомогу з питанням.
 
 ## Ліцензія
 

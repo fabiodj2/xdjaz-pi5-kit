@@ -265,8 +265,9 @@ AZ-MODS is a separate project under its own license (GPL-3.0).
 
 ## Thanks
 
-[fabiodj2](https://github.com/fabiodj2) for helping me out with a
-question.
+[fabiodj2](https://github.com/fabiodj2), also
+[@fabiodj2](https://www.instagram.com/fabiodj2) on Instagram, for
+helping me out with a question.
 
 ## License
 
