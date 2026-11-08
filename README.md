@@ -11,7 +11,7 @@ programs in this repository.
 
 From "I have the 1.30 image" to a Pi that boots into the player: one command.
 
-Questions, help and just AZ talk: [Discord](https://discord.gg/wJSM9wFAcK).
+Questions, help and just AZ talk: [Discord](https://discord.gg/QgbsfBbgaa).
 
 ## What you need
 
