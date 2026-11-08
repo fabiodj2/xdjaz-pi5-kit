@@ -257,6 +257,46 @@ int semget(key_t key, int nsems, int semflg)
 	return (int)syscall(SYS_semget, key, nsems, semflg);
 }
 
+// Wi-Fi wait: before setting up its Wi-Fi the player waits for
+// wpa_supplicant by running "wpa_cli -i mlan0 status" (0x216BC38, 0x216BCA0)
+// in a loop with no pause, through its exec_system (vfork + execl of
+// /bin/sh). There is no mlan0 here, so it ran about 300 times a second and
+// cost about one core. That one command now fails in the vfork child without
+// an exec, after AZ_WPA_WAIT_MS (default 1000; the parent thread waits on
+// the child). Every other execl goes through unchanged.
+#define WPA_STATUS "wpa_cli -i mlan0 status > /dev/null 2>&1"
+
+int execl(const char *path, const char *arg, ...)
+{
+	const char *argv[16];
+	int n = 0;
+	va_list ap;
+
+	argv[n++] = arg;
+	va_start(ap, arg);
+	while (argv[n - 1] && n < 16)
+		argv[n++] = va_arg(ap, const char *);
+	va_end(ap);
+	if (argv[n - 1]) {
+		errno = E2BIG;
+		return -1;
+	}
+	if (n == 4 && !strcmp(path, "/bin/sh") && !strcmp(argv[1], "-c") &&
+	    !strcmp(argv[2], WPA_STATUS)) {
+		const char *v = getenv("AZ_WPA_WAIT_MS");
+		long ms = 0;
+		// no atol: glibc 2.41 headers turn it into __isoc23_strtol
+		while (v && *v >= '0' && *v <= '9')
+			ms = ms * 10 + *v++ - '0';
+		if (!v)
+			ms = 1000;
+		struct timespec ts = { ms / 1000, ms % 1000 * 1000000 };
+		nanosleep(&ts, NULL);
+		_exit(1);
+	}
+	return execv(path, (char *const *)argv);
+}
+
 #define KEYFILE "/etc/azshim/onelibrary.key"
 #define LIBDB "/exportLibrary.db"
 #define SQLITE_ERROR 1

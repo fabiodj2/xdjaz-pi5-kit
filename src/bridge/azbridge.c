@@ -219,13 +219,17 @@ static void jog_write(struct jog *j)
 static void jog_move(struct jog *j, double counts)
 {
 	double t = now();
-	if (t - j->last > 0.05)		// from rest: the window starts at the last move
-		j->win = j->last, j->acc = 0;
+	// From rest the window starts now: started at the last move (maybe
+	// seconds ago), the first speed came out near 0 and the smoothing took
+	// ~100 ms to catch up, so the player (loop OUT adjust goes by the speed)
+	// lagged at every new turn. The first window's speed is taken as is.
+	if (t - j->last > 0.05)
+		j->win = t, j->acc = 0;
 	j->acc += counts < 0 ? -counts : counts;
 	double dt = t - j->win;
 	if (dt >= JOG_WINDOW_S) {
 		double r = j->acc / dt;
-		j->rate = dt > 0.05 ? r : 0.7 * j->rate + 0.3 * r;
+		j->rate = j->rate == 0 ? r : 0.7 * j->rate + 0.3 * r;
 		j->win = t, j->acc = 0;
 	}
 	j->last = t;
@@ -630,17 +634,48 @@ static int rgb_lit(const uint8_t *c)
 	return c[0] > 0x40 || c[1] > 0x40 || c[2] > 0x40;
 }
 
-// A running loop shows as LOOP IN/OUT blinking (toggled every 300 ms).
-#define LOOP_BLINK_S	.45
-static double loop_blink[2];		// last LOOP IN LED change, per deck
-static int loop_led[2], master_deck = -1;
-// The player's deck on each side, from its DECK select LEDs: 0 DECK 1/2,
-// 1 DECK 3/4, -1 not lit (yet).
+// The tempo master (0..3, -1 none) and the player's deck on each side (0 DECK
+// 1/2, 1 DECK 3/4, -1 not seen yet), from its deck TX frames (deck_tx).
+static int master_deck = -1;
 static int az_layer[2] = { -1, -1 };
+// What the player's deck TX frames say of each deck (deck_tx, see there).
+static double deck_pos[4], deck_at[4];		// playhead in s; frame seen at
+static int deck_loaded[4], deck_mode[4], deck_flags[4];
+#define DECK_MODE_THROUGH	0x81	// byte 24: playing through, no loop
+#define DECK_ADJUST_IN		0x80	// byte 17: loop IN being adjusted
+#define DECK_ADJUST_OUT		0x40	// byte 17: loop OUT being adjusted
 
-static int loop_running(int deck)
+// The deck a side plays now (0..3).
+static int live_deck(int side)
 {
-	return now() - loop_blink[deck] < LOOP_BLINK_S;
+	return side + 2 * layer[side];
+}
+
+static int deck_fresh(int d)
+{
+	return now() - deck_at[d] < .5;
+}
+
+// A loop runs on the side's live deck: the player's mode (byte 24) is not
+// "through". (Taken from LOOP IN's blinking LED before, which was wrong while
+// loop OUT was being adjusted: 4 BEAT/EXIT then halved the loop.)
+static int loop_running(int side)
+{
+	int d = live_deck(side);
+	return deck_fresh(d) && deck_loaded[d] && deck_mode[d] != DECK_MODE_THROUGH;
+}
+
+// Loop IN or OUT being adjusted with the jog on the side's live deck (byte 17,
+// confirmed on the unit for both, 2026-11-08): the jog is then made JOG_FINE
+// times less sensitive, for a fine fit (the user's wish). AZ_JOG_FINE sets
+// the factor (1 = off).
+static double jog_fine = 3;
+
+static int loop_adjusting(int side)
+{
+	int d = live_deck(side);
+	return deck_fresh(d) && deck_mode[d] != DECK_MODE_THROUGH &&
+	       (deck_flags[d] & (DECK_ADJUST_IN | DECK_ADJUST_OUT));
 }
 
 static void leds_from_erp(const uint8_t *buf, int n)
@@ -650,16 +685,6 @@ static void leds_from_erp(const uint8_t *buf, int n)
 	for (int deck = 0; deck < 2; deck++) {
 		const uint8_t *b = buf + ERP_BLOCK(deck);
 		uint8_t *on = led_on + deck * L_DECK;
-		if ((b[2] >> 6) != loop_led[deck]) {
-			loop_led[deck] = b[2] >> 6;
-			loop_blink[deck] = now();
-		}
-		if ((b[4] >> 2 & 3) >= 2)		// DECK select: 3/4
-			az_layer[deck] = 1;
-		else if ((b[4] & 3) >= 2)		// 1/2
-			az_layer[deck] = 0;
-		if ((b[0] >> 4 & 3) >= 2)		// MASTER lit: the tempo master
-			master_deck = deck + 2 * (az_layer[deck] > 0);
 		on[L_PLAY] = (b[3] & 3) >= 2;
 		on[L_CUE] = (b[3] >> 2 & 3) >= 2;
 		on[L_SYNC] = (b[1] >> 6 & 3) >= 2;
@@ -699,8 +724,8 @@ static void leds_pad_mode(int deck, int base)
 // The GRV6's DECK buttons switch a side between decks 1 and 3 (left) or 2 and
 // 4 (right): note 60 On on the new deck's channel says which is live
 // (measured on the unit). The AZ has the same model, a deck select pair per side (ErP RX D+0
-// bit 0 primary = DECK 1/2, D+1 bit 0 secondary = DECK 3/4, lit in TX B+4), so
-// the bridge presses the AZ's one until the player's LEDs agree. A side's
+// bit 0 primary = DECK 1/2, D+1 bit 0 secondary = DECK 3/4, said in deck TX byte 0), so
+// the bridge presses the AZ's one until the player's deck frames agree. A side's
 // controls go to the same AZ side whichever layer is live, as on the AZ.
 #define LAYER_RETRY_S	.3
 #define LAYER_TRIES	3
@@ -955,11 +980,57 @@ static void mc_tx(const uint8_t *buf, int n)
 // an angle 1..72 (0 dark); the beat LEDs over the Beat FX knob are CC 0x64 on
 // channel 4, "BeatMultiplier No".
 //
-// The player tells the MCU no playhead the bridge can read yet, so the
-// indicator turns as a record at 33 1/3 rpm would: with the deck's tempo
-// while it plays (and its platter is not held), and with the platter.
+// The indicator shows the playhead as a record at 33 1/3 rpm would: it turns
+// while the deck plays, runs round inside a loop, goes back when CUE is let
+// go, jumps with a hot cue and stands while paused. The playhead comes from
+// the player's deck TX frames (deck_tx). Without them the ring is made up: it
+// turns at 33 1/3 rpm with the deck's tempo while the live deck's PLAY LED is
+// lit steadily (the MC TX status records, ch_state, come only now and then),
+// and with the platter.
 #define JOGIND_STEPS	72
 static int jogind_sent[4] = { -1, -1, -1, -1 };
+
+// Deck TX (152 bytes, spi5.0 left, spi2.0 right): the player sends the side's
+// two decks in turn. Read off TX logs while the user played, held CUE, made
+// and halved loops and hit hot cues (2026-11-08):
+//   0         0x08: the side plays DECK 3/4 (in both decks' frames)
+//   8         deck number in the high nibble (0x11 deck 1, 0x21 deck 2, ...)
+//   17        flags: 0x80 loop IN being adjusted, 0x40 loop OUT being
+//             adjusted (0x10 toggles while paused)
+//   19        0x80: the tempo master (0x81, the others 0x01)
+//   22        0x10 a track is loaded, 0x20 none
+//   24        the mode: 0x81 playing through, 0x0C..0x10 in a loop by its
+//             length (the position runs round the loop), 0x01 a loop of
+//             another length (after IN/OUT adjust); 8, 0x0A seen too
+//   25        the playhead: minutes
+//   26        seconds
+//   27..28    milliseconds, little-endian (0..999)
+// The playhead is the track's, in every mode: CUE held runs on from the cue
+// and goes back to it when let go, a loop runs round, a hot cue jumps. Now
+// and then a frame carries 0:00.000; the position of those is left out.
+// Bytes 0 and 19 were read off DECK select and MASTER presses (2026-11-08).
+static void deck_tx(const uint8_t *buf, int n)
+{
+	if (n < 29)
+		return;
+	int d = (buf[8] >> 4) - 1;
+	if (d < 0 || d > 3)
+		return;
+	az_layer[SIDE(d)] = buf[0] & 0x08 ? 1 : 0;	// both decks' frames say it
+	if (buf[19] & 0x80)
+		master_deck = d;
+	else if (master_deck == d)
+		master_deck = -1;
+	deck_loaded[d] = buf[22] == 0x10;
+	deck_mode[d] = buf[24];
+	deck_flags[d] = buf[17];
+	deck_at[d] = now();
+	// now and then a loaded deck's frame says 0:00.000 between two real
+	// positions (the rest of it as usual): kept at the last one
+	int ms = buf[27] | buf[28] << 8;
+	if (buf[25] || buf[26] || ms || !deck_loaded[d])
+		deck_pos[d] = buf[25] * 60 + buf[26] + ms / 1000.0;
+}
 
 static void jogind_send(snd_rawmidi_t *out, double dt, int all)
 {
@@ -967,7 +1038,21 @@ static void jogind_send(snd_rawmidi_t *out, double dt, int all)
 		return;
 	for (int d = 0; d < 4; d++) {
 		int side = SIDE(d), live = layer[side] == d >> 1;
-		if (ch_state[d] == 3 && !(live && jogs[side].touch))
+		if (deck_fresh(d)) {			// the player's playhead
+			double rev = deck_pos[d] * (100 / 3.0 / 60);
+			int v = deck_loaded[d] ?
+				1 + (int)((rev - floor(rev)) * JOGIND_STEPS) % JOGIND_STEPS : 0;
+			if (v != jogind_sent[d] || all) {
+				uint8_t msg[3] = { 0xBF, d, v };
+				snd_rawmidi_write(out, msg, 3);
+				jogind_sent[d] = v;
+			}
+			continue;
+		}
+		// no deck frames: made up, turning while the mixer's status says
+		// the deck plays
+		int plays = ch_state[d] == 3;
+		if (plays && !(live && jogs[side].touch))
 			jog_rev[d] += dt * (100 / 3.0 / 60) * (ch_ratio[d] > 0 ? ch_ratio[d] : 1);
 		jog_rev[d] -= floor(jog_rev[d]);
 		int v = ch_state[d] ? 1 + (int)(jog_rev[d] * JOGIND_STEPS) % JOGIND_STEPS : 0;
@@ -1108,7 +1193,8 @@ static void apply(const struct ctl *c, int value, int on)
 		break;
 	}
 	case JOG:
-		jog_move(&jogs[c->a], (value - 64) * (double)AZ_JOG_COUNTS / cur->jog_ticks);
+		jog_move(&jogs[c->a], (value - 64) * (double)AZ_JOG_COUNTS / cur->jog_ticks /
+			 (loop_adjusting(c->a) ? jog_fine : 1));
 		break;
 	case JOGTOUCH:
 		jogs[c->a].touch = on;
@@ -1328,6 +1414,9 @@ int main(int argc, char **argv)
 		snprintf(dev_buf, sizeof(dev_buf), "hw:%s,0,0", cur->card);
 		midi_dev = dev_buf;
 	}
+	const char *fine = getenv("AZ_JOG_FINE");
+	if (fine && atof(fine) >= 1)
+		jog_fine = atof(fine);
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
@@ -1431,6 +1520,8 @@ int main(int argc, char **argv)
 					leds_from_erp(buf, (int)n);
 				else if (conns[i].dev == DEV_MC)
 					mc_tx(buf, (int)n);
+				else
+					deck_tx(buf, (int)n);
 				if (txlog)
 					tx_log(conns[i].dev, buf, (int)n);
 			}
