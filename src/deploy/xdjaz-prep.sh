@@ -24,10 +24,14 @@ start)
     done
     [ -n "$CARD" ] || { log "no controller ($CARDS)"; exit 1; }
     log "controller $CARD"
-    ALOOP="index=7 id=ALPHATHETAD810 pcm_substreams=1 timer_source=hw:$CARD,0"
-    # A loopback loaded by hand without the controller's clock is reloaded.
+    # two substreams: the player's audio out (,x,0) and its MASTER REC input
+    # (capture ,0,1, which azmix feeds), see azmix.c
+    ALOOP="index=7 id=ALPHATHETAD810 pcm_substreams=2 timer_source=hw:$CARD,0"
+    # A loopback loaded by hand without the controller's clock (or from before
+    # the REC input) is reloaded.
     if [ -e /sys/module/snd_aloop ] &&
-       ! grep -q "^hw:$CARD,0" /sys/module/snd_aloop/parameters/timer_source 2>/dev/null; then
+       { ! grep -q "^hw:$CARD,0" /sys/module/snd_aloop/parameters/timer_source 2>/dev/null ||
+         ! grep -q "^2," /sys/module/snd_aloop/parameters/pcm_substreams; }; then
         modprobe -r snd-aloop || { log "snd-aloop in use with the wrong clock"; exit 1; }
     fi
     [ -e /sys/module/snd_aloop ] || modprobe snd-aloop $ALOOP || exit 1
@@ -39,7 +43,11 @@ stop)
     # whatever xdjaz-usb.sh left mounted if it was killed
     for m in $(findmnt -rno TARGET | grep "^$MEDIA/" | sort -r); do umount -l "$m"; done
     mountpoint -q "$MEDIA" && umount -l "$MEDIA"
-    rm -rf /run/xdjaz-usbcopy
+    # the sticks' read-write mounts live in there (xdjaz-usb.sh): off first,
+    # and never delete across a mount
+    for m in $(findmnt -rno TARGET | grep "^/run/xdjaz-usbcopy/" | sort -r); do umount -l "$m"; done
+    rm -rf --one-file-system /run/xdjaz-usbcopy
+    rm -rf /run/xdjaz          # the mixer frame and meters (run-probe.sh)
     # the mixer and the player may still be closing the card
     for i in $(seq 10); do
         [ -e /sys/module/snd_aloop ] || break

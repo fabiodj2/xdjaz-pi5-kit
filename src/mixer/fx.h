@@ -146,6 +146,46 @@ void colorfx_process(struct colorfx *fx, int type, float knob, float *lr, int fr
 // dub echo time in seconds (default 0.375, e.g. 3/4 beat at 120 BPM); takes effect smoothly
 void colorfx_set_time(struct colorfx *fx, float seconds);
 
+// ---- MIC Feedback Reducer --------------------------------------------------------
+//
+// The AZ's mixer setting (OFF / LIGHT / HEAVY): finds howling (a narrow peak
+// in the mic's spectrum, 200 Hz .. 8 kHz, that stands well above its
+// neighbours, has no partials at twice or half its frequency and holds its
+// pitch) and
+// puts a narrow notch on it. LIGHT: up to 4 notches, slower and shallower;
+// HEAVY: up to 8, sooner and deeper. The notches stay while the mode is on
+// (feedback comes back at the same frequencies); OFF clears them.
+#define FBR_N		1024		// analysis frames (FFT)
+#define FBR_HOP		256		// frames between analyses
+#define FBR_NOTCHES	8
+
+struct fbr_notch {
+	float f;			// Hz, 0 unused
+	float gain_db;			// < 0
+	float b0, b1, b2, a1, a2, s1, s2;
+	uint32_t age;			// analyses since set or deepened
+};
+
+struct fbr_cand {
+	float f;
+	int hits;
+};
+
+struct fbr {
+	float rate;
+	int mode;			// the last process call's
+	float in[FBR_N];		// last FBR_N frames, after the notches
+	int pos, since;
+	struct fbr_notch n[FBR_NOTCHES];
+	struct fbr_cand c[FBR_NOTCHES];
+	unsigned set;			// notches ever set (log)
+};
+
+void fbr_init(struct fbr *r, float rate);
+// mode 0 off, 1 light, 2 heavy; mono in place. Returns 1 when it has just
+// set or deepened a notch (for the log), with the frequency in *hz.
+int fbr_process(struct fbr *r, int mode, float *x, int frames, float *hz);
+
 void fx_flush_denormals(void);
 
 #endif

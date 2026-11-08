@@ -74,8 +74,12 @@ stick: it shows in SOURCE as USB1.
   on request).
 - **4 decks on the GRV6.** The DECK button switches a side to deck 3/4, and
   the player switches with it.
-- **The mixer.** Trim, a 3-band isolator, channel faders, crossfader
-  (channels 1/3 on A, 2/4 on B), CUE, the level meters on the controller.
+- **SHIFT** of either side shifts both decks, as on the AZ.
+- **The mixer.** Trim, EQ, channel faders, crossfader, CUE, the level meters
+  on the controller. It follows the player's MIXER SETTINGS screen: crossfader
+  assign per channel (the AZ's default is THRU on all four: set A/B there to
+  use the crossfader), crossfader and channel fader curves, EQ or ISO,
+  headphones MONO SPLIT, LINK preview volume.
 - **COLOR FX.** SMART CFX press: on/off; with SHIFT: the next effect. The GRV6
   has a knob per channel.
 - **Beat FX.** All 14 of the player's effects, beat, level, channel. On a
@@ -85,9 +89,23 @@ stick: it shows in SOURCE as USB1.
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
   The track preview (touch preview in the browser) plays in the headphones
   only, as on the AZ.
-- **USB sticks** come and go while playing. A stick is mounted read-only and
-  the player writes to a copy of its database in memory: your stick is never
-  changed.
+- **Microphone.**
+  - FLX4: the mic goes through our mixer: MIC LEVEL, talkover (UTILITY >
+    Mixer; the voice turns it on, Normal or Advanced), the Feedback Reducer
+    (MIXER SETTINGS). SHIFT + the FX CH lever puts the Beat FX on the mic
+    alone.
+  - GRV6: the unit mixes the mic into its master itself; it gets no effects
+    or level from here.
+- **MASTER REC** records the master as heard to the stick's
+  `ALPHATHETA REC` folder (WAV, 44.1 kHz). With MIC Output to Master REC on,
+  the GRV6's recording includes the mic.
+- **USB sticks** come and go while playing. A stick is read-only to the
+  player except its `ALPHATHETA REC` folder; the player writes its database
+  changes to a copy in memory, so your library on the stick is never changed.
+- **Sleep.** When the controller goes into standby (its Auto Standby), the
+  player sleeps with it: black screen. Wake the controller and the player is
+  back in ~10 s with the sticks in SOURCE; loaded tracks are unloaded, as
+  after an AZ's standby.
 
 ### Mapping that is not obvious
 
@@ -102,6 +120,7 @@ stick: it shows in SOURCE as USB1.
 | VIEW (GRV6) | BROWSE |
 | Browse tilt (GRV6) | up/down: a row (with SHIFT: a page); left: BACK; right: select |
 | SHIFT + SLIP (VINYL) | JOG MODE |
+| SHIFT + FX CH lever (FLX4) | Beat FX on the mic alone; the lever without SHIFT goes back to the channel |
 | SHIFT + MEMORY | delete a cue |
 | DRUM RELEASE lever (GRV6) | while tilted, the deck's channel slows to a stop like a record |
 | Beat FX knob (GRV6): LC ECHO, PITCH, MOBIUS saw, MOBIUS tri | PING PONG, TRIPLET FILTER, MOBIUS, TRIPLET ROLL (the AZ has none of the four) |
@@ -138,6 +157,7 @@ then `sudo systemctl daemon-reload && sudo systemctl restart xdjaz`.
 | `COMP` | compositor: `0` none, `glx`, `xrender`; with AZ-MODS the default is `glx` |
 | `AZMODS` | `0`: the player without the mods |
 | `AZ_CARD` | the controller's sound card name, if detection picks the wrong one |
+| `AZ_SLEEP` | `0`: no sleep with the controller (the player then exits when the controller goes) |
 
 ## Another screen
 
@@ -151,6 +171,11 @@ are set for the 1024×600 panel:
   turned against its picture. If touches land right on your screen without
   it, remove that section.
 - `kmsdev /dev/dri/card1`: the Pi 5's video output, leave it.
+
+In `src/probe/run-probe.sh` the touch filter `aztouch` is started for a
+1024×600 panel turned 180° (`-S 1024x600 -r`) and, with `PANEL=juce`, makes
+the small icons at the top bar's edge (REC timer, gear) easier to hit
+(`-z` zones). Change or drop those for another screen.
 
 The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75).
 
@@ -224,7 +249,8 @@ checks the player's md5.
 - Firmware **1.30** only: the fixes and maps are made for this player build
   (md5 `3518275e8b4d5d63636d8d7b4468d7ba`); the script refuses any other.
 - The player runs without a network: no streaming, Pro DJ Link or updates.
-- No Bluetooth, no automatic sleep.
+- No Bluetooth.
+- No limiter: hot tracks clip with TRIM above centre.
 - The "1/3 1/2 2/3" hint on the BEAT FX panel is drawn by the player itself;
   BEAT < > never land on 1/3 or 2/3.
 

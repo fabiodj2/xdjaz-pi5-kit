@@ -17,9 +17,14 @@
 # deck had a track from it as busy, and does not take the stick back.
 # azshim hands those lines over one per read (see azshim.c).
 #
-# The stick itself is never written: PIONEER/rekordbox (where SQLite keeps its
-# -wal/-shm next to exportLibrary.db, ~10 MB) is a writable copy in RAM bound
-# over it, dropped when the stick goes.
+# The player sees the stick read-only, but for one folder: PIONEER/rekordbox
+# (where SQLite keeps its -wal/-shm next to exportLibrary.db, ~10 MB) is a
+# writable copy in RAM bound over it, dropped when the stick goes, and
+# "ALPHATHETA REC" (MASTER REC's WAVs) is the stick's own, writable. For that
+# the stick is mounted read-write at $COPY/rw-<partition> and bound read-only
+# at $MEDIA/<partition>; one that cannot be written (or mounted read-write)
+# is mounted read-only, without REC.
+REC_DIR="ALPHATHETA REC"
 set -u
 STATE=${1:?usage: xdjaz-usb.sh STATE-DIR}
 MEDIA=/run/xdjaz-media
@@ -47,11 +52,24 @@ attach() {    # name fstype
     for s in usb1 usb2; do [ -e "$COPY/$s" ] || { slot=$s; break; }; done
     [ -n "$slot" ] || { log "$1: both USB ports in use"; return; }
     mp=$MEDIA/$1
-    mkdir -p "$mp"
-    if ! mount -o ro,noatime "/dev/$1" "$mp"; then
-        log "$1: cannot mount ($2)"
-        rmdir "$mp"
-        return
+    rw=$COPY/rw-$1
+    mkdir -p "$mp" "$rw"
+    own=""
+    case $2 in vfat|exfat) own=",uid=${OWNER%:*},gid=${OWNER#*:}" ;; esac
+    if mount -o rw,noatime$own "/dev/$1" "$rw" &&
+       mount --bind "$rw" "$mp" && mount -o remount,bind,ro "$mp"; then
+        mkdir -p "$rw/$REC_DIR" && chown "$OWNER" "$rw/$REC_DIR" 2>/dev/null
+        mount --bind "$rw/$REC_DIR" "$mp/$REC_DIR" || log "$1: no $REC_DIR"
+    else
+        mountpoint -q "$mp" && umount "$mp"
+        mountpoint -q "$rw" && umount "$rw"
+        rmdir "$rw"
+        if ! mount -o ro,noatime "/dev/$1" "$mp"; then
+            log "$1: cannot mount ($2)"
+            rmdir "$mp"
+            return
+        fi
+        log "$1: read-only, no MASTER REC"
     fi
     if [ -d "$mp/PIONEER/rekordbox" ]; then
         rm -rf "$COPY/$1"
@@ -69,10 +87,27 @@ detach() {    # name
     done
     mp=$MEDIA/$1
     mountpoint -q "$mp/PIONEER/rekordbox" && umount -l "$mp/PIONEER/rekordbox"
+    mountpoint -q "$mp/$REC_DIR" && umount -l "$mp/$REC_DIR"
     mountpoint -q "$mp" && umount -l "$mp"
     rmdir "$mp" 2>/dev/null
+    rw=$COPY/rw-$1
+    mountpoint -q "$rw" && umount -l "$rw"
+    rmdir "$rw" 2>/dev/null
     rm -rf "$COPY/$1"
 }
+
+# SIGHUP: a restarted player knows no stick yet; announce the attached ones
+# again (run-probe.sh, when the player wakes up with the controller).
+announce() {
+    for s in usb1 usb2; do
+        [ -e "$COPY/$s" ] || continue
+        name=$(cat "$COPY/$s")
+        fs=$(lsblk -nro FSTYPE "/dev/$name" 2>/dev/null)
+        event "$s" "connect,"
+        event "$s" "mount /media/usb/$name $fs protect:0"
+    done
+}
+trap announce HUP
 
 cleanup() {
     for s in usb1 usb2; do

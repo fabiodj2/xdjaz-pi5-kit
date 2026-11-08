@@ -12,8 +12,20 @@
 // event node. aztouch then lifts any contact on its own device, waits for
 // the touchscreen to return and carries on, so X keeps one device throughout.
 //
-//   aztouch [/dev/input/eventN]   (default: the first direct-touch device;
-//                                  a fixed path is not found again after a drop)
+// Snap zones: a touch that comes down inside a zone is moved, for as long as
+// it lasts, to the zone's target (the centre of a small button). The AZ's
+// top bar has small icons at the panel's edge (the REC timer that opens
+// MIXER SETTINGS, the gear / info) and fingers land around them: measured
+// 2026-11-06, taps on the gear spread over x 959..1018 for an icon at
+// 951..981, the player's window ending at 992.
+//
+//   aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [/dev/input/eventN]
+//     -S  the screen in pixels (zones are in screen pixels), default 1024x600
+//     -r  the touchscreen reports 180 degrees off (xorg's CalibrationMatrix
+//         turns it back), so zones are turned too
+//     -z  a zone, up to 8
+//   default device: the first direct-touch one (a fixed path is not found
+//   again after a drop)
 //
 // Build: gcc -O2 -Wall -o aztouch aztouch.c
 
@@ -34,6 +46,25 @@
 #define MAXEV	64	// events per report
 
 #define BIT(arr, n)	((arr)[(n) / 8] & (1 << ((n) % 8)))
+
+static struct zone { int x0, y0, x1, y1, tx, ty; } zones[8];
+static int nzones, scr_w = 1024, scr_h = 600, turned;
+static struct input_absinfo ax, ay;	// the device's X and Y axes
+static int snapping, snap_x, snap_y;	// device units
+
+// device <-> screen pixels
+static int to_screen(int v, const struct input_absinfo *a, int size)
+{
+	int s = (int)((long long)(v - a->minimum) * size / (a->maximum - a->minimum + 1));
+	return turned ? size - 1 - s : s;
+}
+
+static int to_device(int s, const struct input_absinfo *a, int size)
+{
+	if (turned)
+		s = size - 1 - s;
+	return a->minimum + (int)(((long long)s * 2 + 1) * (a->maximum - a->minimum + 1) / (2 * size));
+}
 
 struct frame {
 	struct input_event ev[MAXEV];
@@ -130,8 +161,32 @@ static int clone_device(int src, const char *name)
 	return fd;
 }
 
-static void emit(int out, const struct frame *f)
+static void emit(int out, struct frame *f)
 {
+	int down = 0, up = 0;
+	for (int i = 0; i < f->n; i++)
+		if (f->ev[i].type == EV_KEY && f->ev[i].code == BTN_TOUCH)
+			*(f->ev[i].value ? &down : &up) = 1;
+	if (down && nzones && ax.maximum > ax.minimum && ay.maximum > ay.minimum) {
+		int sx = to_screen(f->x, &ax, scr_w), sy = to_screen(f->y, &ay, scr_h);
+		snapping = 0;
+		for (int z = 0; z < nzones && !snapping; z++)
+			if (sx >= zones[z].x0 && sx <= zones[z].x1 && sy >= zones[z].y0 && sy <= zones[z].y1) {
+				snapping = 1;
+				snap_x = to_device(zones[z].tx, &ax, scr_w);
+				snap_y = to_device(zones[z].ty, &ay, scr_h);
+			}
+	}
+	if (snapping)
+		for (int i = 0; i < f->n; i++) {
+			struct input_event *e = &f->ev[i];
+			if (e->type == EV_ABS && (e->code == ABS_X || e->code == ABS_MT_POSITION_X))
+				e->value = snap_x;
+			else if (e->type == EV_ABS && (e->code == ABS_Y || e->code == ABS_MT_POSITION_Y))
+				e->value = snap_y;
+		}
+	if (up)
+		snapping = 0;
 	if (f->n && write(out, f->ev, sizeof(f->ev[0]) * f->n) < 0)
 		perror("aztouch: write");
 }
@@ -184,7 +239,24 @@ static void release_all(int out)
 int main(int argc, char **argv)
 {
 	char name[200] = "touchscreen";
-	const char *path = argc > 1 ? argv[1] : NULL;
+	int opt;
+	while ((opt = getopt(argc, argv, "S:rz:")) != -1) {
+		struct zone *z = &zones[nzones];
+		if (opt == 'S' && sscanf(optarg, "%dx%d", &scr_w, &scr_h) == 2)
+			continue;
+		if (opt == 'r') {
+			turned = 1;
+			continue;
+		}
+		if (opt == 'z' && nzones < 8 && sscanf(optarg, "%d,%d,%d,%d,%d,%d", &z->x0, &z->y0,
+							&z->x1, &z->y1, &z->tx, &z->ty) == 6) {
+			nzones++;
+			continue;
+		}
+		fprintf(stderr, "usage: aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [device]\n");
+		return 2;
+	}
+	const char *path = optind < argc ? argv[optind] : NULL;
 	int in = open_touchscreen(path, name, sizeof(name));
 	if (in < 0) {
 		fprintf(stderr, "aztouch: no touchscreen found\n");
@@ -197,7 +269,10 @@ int main(int argc, char **argv)
 	}
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
-	fprintf(stderr, "aztouch: filtering \"%s\"\n", name);
+	ioctl(in, EVIOCGABS(ABS_X), &ax);
+	ioctl(in, EVIOCGABS(ABS_Y), &ay);
+	fprintf(stderr, "aztouch: filtering \"%s\" (%d..%d x %d..%d), %d snap zones\n", name,
+		ax.minimum, ax.maximum, ay.minimum, ay.maximum, nzones);
 
 	struct frame held, f;
 	int has_held = 0, x = -1, y = -1;	// position last passed on

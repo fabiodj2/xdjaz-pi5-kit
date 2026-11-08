@@ -13,13 +13,18 @@ STATE=/opt/xdjaz/state          # writable dirs the player expects
 DISP=:7
 [ "${XORG:-0}" = 1 ] && DISP=:0
 T=${1:-40}
+# Files the bridge, the mixer and azvsync share (mixer frame, meters, vsync
+# time). Not /dev/shm: logind (RemoveIPC) empties the user's files there when
+# their last session closes, and a mixer restarted later (wake-up) would find
+# no controls. xdjaz-prep.sh stop removes the directory.
+sudo install -d -o "$(id -u)" -g "$(id -g)" /run/xdjaz
 
 mkdir -p "$STATE"/{tmp,home-root,var}
 # EP147 forks its library daemon (edb_streamd): pid file in /run (a tmpfs below,
 # as on the deck), socket in /tmp. A stale socket from a killed run is dropped.
 rm -f "$STATE/tmp/edb_daemon.sock"
 # Sound: only card 7, a snd-aloop named like the AZ's own interface
-# (modprobe snd-aloop index=7 id=ALPHATHETAD810 pcm_substreams=1; asound.conf
+# (modprobe snd-aloop index=7 id=ALPHATHETAD810 pcm_substreams=2; asound.conf
 # wants hw:ALPHATHETAD810,0 x8 + ,1 x2), and the shared sequencer/timer;
 # never the controller's own card.
 SNDBIND=""
@@ -67,9 +72,15 @@ KEYBIND=""
 [ -r /opt/xdjaz/keys/onelibrary.key ] && KEYBIND="--ro-bind /opt/xdjaz/keys/onelibrary.key /etc/azshim/onelibrary.key"
 
 if [ "${XORG:-0}" = 1 ]; then
-  # the panel's touch controller glitches; X gets it through the aztouch filter
+  # the panel's touch controller glitches; X gets it through the aztouch filter.
+  # With the UI at 1:1 in the middle (PANEL=juce, the window at x 31..992),
+  # it also widens the top bar's small icons at the panel's edge: the REC
+  # timer (opens MIXER SETTINGS) and the gear / info (aztouch.c).
+  TOUCHZONES=""
+  [ "${PANEL:-juce}" = juce ] && TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
-    sudo setsid /opt/xdjaz/touch/aztouch > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
+    sudo setsid /opt/xdjaz/touch/aztouch -S 1024x600 -r $TOUCHZONES \
+      > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
   sudo Xorg $DISP vt${XVT:-1} -keeptty -novtswitch -nolisten tcp -nocursor -config /opt/xdjaz/xorg-az.conf \
     -logfile /opt/xdjaz/xorg.log >/dev/null 2>&1 &
   for i in $(seq 10); do DISPLAY=$DISP xrandr >/dev/null 2>&1 && break; sleep 1; done
@@ -125,10 +136,12 @@ fi
 
 # Mixer (before the player: the loopback runs on the controller's clock) and
 # controller bridge (UCOM frames on $STATE/tmp/azbridge.sock), if built.
-# The preview goes to the headphones only, as on the AZ (azmix -p would also
-# put it on the master).
-[ -x /opt/xdjaz/mixer/azmix ] && ! pgrep -x azmix >/dev/null &&
-  sudo setsid /opt/xdjaz/mixer/azmix > /opt/xdjaz/mixer/azmix.log 2>&1 < /dev/null &
+start_mix() {
+  [ -x /opt/xdjaz/mixer/azmix ] && ! pgrep -x azmix >/dev/null &&
+    sudo setsid /opt/xdjaz/mixer/azmix >> /opt/xdjaz/mixer/azmix.log 2>&1 < /dev/null &
+}
+: > /opt/xdjaz/mixer/azmix.log
+start_mix
 [ -x /opt/xdjaz/bridge/azbridge ] && ! pgrep -x azbridge >/dev/null &&
   setsid /opt/xdjaz/bridge/azbridge -v ${AZBRIDGE_OPTS:-} -s "$STATE/tmp/azbridge.sock" \
     > /opt/xdjaz/bridge/azbridge.log 2>&1 < /dev/null &
@@ -139,13 +152,31 @@ fi
 # second (AZ-MODS) neither that nor writing it later (-w, VSYNC_DELAY_US) holds
 # the repaint in place: it drifts through the frame, so the mods get the
 # compositor (below).
-VSYNC=/dev/shm/az-vsync_time
+VSYNC=/run/xdjaz/az-vsync_time
 [ -e $VSYNC ] || echo 0 > $VSYNC
 [ "${XORG:-0}" = 1 ] && [ -x /opt/xdjaz/vsync/azvsync ] && ! pgrep -x azvsync >/dev/null &&
   setsid /opt/xdjaz/vsync/azvsync -f $VSYNC -o "${VSYNC_OFFSET_US:-11000}" -w "${VSYNC_DELAY_US:-0}" \
     > /opt/xdjaz/vsync/azvsync.log 2>&1 < /dev/null &
 sleep 1
 
+# MASTER REC: the player records its audio input, the capture side of
+# "outs" (first two of its ten channels), which azmix feeds (azmix.c). Its
+# JUCE only offers that input if a capture on ALSA's "default" opens, and the
+# rootfs' default (dsnoop on the loopback) cannot. The player gets its own
+# asound.conf, the rootfs' plus a default whose capture is "outs".
+ASOUND=$STATE/asound.conf
+{ cat "$ROOT/etc/asound.conf"; cat <<'EOC'
+
+# xdjaz (run-probe.sh): capture for the MASTER REC input probe
+pcm.!default {
+	type asym
+	playback.pcm { type plug; slave.pcm "dmix:ALPHATHETAD810" }
+	capture.pcm "outs"
+}
+EOC
+} > "$ASOUND"
+
+start_player() {
 ${STRACE:-} bwrap \
   --bind "$ROOT" / \
   --dev /dev \
@@ -159,6 +190,7 @@ ${STRACE:-} bwrap \
   --ro-bind /tmp/.X11-unix /tmp/.X11-unix \
   --ro-bind /opt/xdjaz/shims /usr/lib/azshim \
   --ro-bind /opt/xdjaz/dconf /usr/bin/dconf \
+  --ro-bind "$ASOUND" /etc/asound.conf \
   --setenv AZ_SCALE8 "$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)" \
   --setenv LD_PRELOAD $PRELOAD \
   $USBBIND $KEYBIND $MODBIND ${GUARD:-} \
@@ -168,8 +200,11 @@ ${STRACE:-} bwrap \
   --chdir /home/root/pdj \
   --unshare-user --uid 0 --gid 0 \
   --unshare-pid --unshare-net --unshare-ipc --die-with-parent \
-  ./EP147 > /opt/xdjaz/ep147.log 2>&1 &
+  ./EP147 >> /opt/xdjaz/ep147.log 2>&1 &
 BPID=$!
+}
+: > /opt/xdjaz/ep147.log
+start_player
 # Announce the stick the way the deck's device-mount.sh does, once the player polls.
 # Once the player's window is up: the panel gets a mode at the refresh the
 # player is built for (its repaint timer runs on a fixed 59.24 Hz period;
@@ -190,6 +225,7 @@ setmode() {
     "$2" $(($2 + 3)) $(($2 + 9)) "$3" +hsync -vsync
   DISPLAY=$DISP xrandr --addmode "$OUT" "$name" && DISPLAY=$DISP xrandr --output "$OUT" --mode "$name"
 }
+place_window() {
 [ "${XORG:-0}" = 1 ] && (for i in $(seq 30); do
   W=$(DISPLAY=$DISP xdotool search --name '^EP147$' 2>/dev/null | head -1)
   if [ -n "$W" ]; then
@@ -212,9 +248,58 @@ setmode() {
   fi
   sleep 1
 done) &
+}
+place_window
+
+# The controller's sleep (the GRV6's Auto Standby) takes it off USB, and the
+# loopback loses the clock it runs on (snd-aloop's timer source): the player
+# would fail. Like a real AZ in standby it goes to sleep instead: stopped,
+# the screen black (no menu), and when the controller comes back it starts
+# again (tracks unloaded, as after the AZ's own standby). The sticks are
+# announced again (xdjaz-usb.sh, on SIGHUP). AZ_SLEEP=0: the old way, the
+# player fails and the menu comes back.
+CTL_CARD=""
+for c in ${AZ_CARD:-DDJGRV6 DDJFLX4}; do [ -e "/proc/asound/$c" ] && { CTL_CARD=$c; break; }; done
+asleep() { [ "$T" = 0 ] && [ "${AZ_SLEEP:-1}" != 0 ] && [ -n "$CTL_CARD" ] && [ ! -e "/proc/asound/$CTL_CARD" ]; }
+# Back from sleep: the controller's audio side can take a while after its USB
+# comes back, and the player needs the mixer running (its clock) before it
+# starts. A player that fails soon after waking is started again (WAKE_TRIES).
+WAKE_TRIES=3
+wake() {
+  echo "controller $CTL_CARD back: the player wakes"
+  local k
+  for k in $(seq 15); do
+    sleep 2
+    asleep && return 1
+    start_mix; sleep 2
+    pgrep -x azmix >/dev/null && break
+    echo "wake: the mixer has no output yet ($k)"
+  done
+  rm -f "$STATE/tmp/edb_daemon.sock"
+  start_player; place_window
+  ( sleep 5; sudo pkill -HUP -x xdjaz-usb.sh ) &
+  WOKE_AT=$i
+}
+WOKE_AT=-1000; WAKES=0
 i=0
 while [ "$T" = 0 ] || [ $i -lt "$T" ]; do
-  kill -0 $BPID 2>/dev/null || break
+  if asleep; then
+    echo "controller $CTL_CARD gone: the player sleeps"
+    kill -INT $BPID 2>/dev/null; sleep 3; kill -KILL $BPID 2>/dev/null; wait $BPID 2>/dev/null
+    sudo pkill -x azmix
+    while asleep; do sleep 1; done
+    wake; WAKES=0
+    continue
+  fi
+  if ! kill -0 $BPID 2>/dev/null; then
+    # died soon after waking, with the controller there: once more
+    if [ $((i - WOKE_AT)) -lt 60 ] && [ $WAKES -lt $WAKE_TRIES ] && ! asleep; then
+      wait $BPID 2>/dev/null; echo "the player failed after waking (exit $?): again"
+      WAKES=$((WAKES + 1)); sudo pkill -x azmix; wake
+      continue
+    fi
+    break
+  fi
   i=$((i + 1))
   # keep the last frame the player drew, even if it dies later
   [ "$T" != 0 ] && [ $((i % 5)) = 0 ] && DISPLAY=$DISP xwd -root -silent > /opt/xdjaz/shot.xwd 2>/dev/null

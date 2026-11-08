@@ -62,7 +62,7 @@ static int active_crtc_index(int fd)
 
 int main(int argc, char **argv)
 {
-	const char *dev = "/dev/dri/card1", *path = "/dev/shm/az-vsync_time";
+	const char *dev = "/dev/dri/card1", *path = "/run/xdjaz/az-vsync_time";
 	long long offset_ns = 0, delay_ns = 0;
 	int opt;
 	while ((opt = getopt(argc, argv, "d:f:o:w:")) != -1) {

@@ -23,7 +23,9 @@
 // deck layers 3 and 4 drive the same two sides, switched to the AZ's DECK 3
 // and DECK 4 (see "Deck layers"), and mixer channels 3 and 4.
 //
-//   azbridge [-c flx4|grv6] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
+//   azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
+//
+// -k also sends the GRV6 its "host here" message (see grv6_keepalive).
 //
 // The player's TX frames drive the controller's LEDs (see "LEDs" below); -t
 // logs every byte that changes in them, with the MIDI input interleaved.
@@ -59,7 +61,7 @@
 #include <unistd.h>
 
 #define TICK_MS		10
-#define MC_SHM		"/dev/shm/azmix-mc"
+#define MC_SHM		"/run/xdjaz/azmix-mc"
 #define MAXCONN		8
 #define RETURN_REQUEST	"/tmp/rblaunch.request"
 #define RETURN_HOLD_S	2.0
@@ -321,8 +323,14 @@ struct ctl {
 	{ 0xB0 + n, 0x0F, FADER14, DEV_MC, 39 + 5 * n, 40 + 5 * n, 0 },	\
 	{ 0x90 + n, 0x54, BUTTON, DEV_MC, 20, 3 - n }	/* headphone CUE */
 
+// MIC LEVEL for azmix: 10 bits at MC bytes 98/99 (bits 6-7), after the CRC
+// (96..97) like the private bytes 120..127; the AZ's own MIC LEVEL is analog.
+#define MC_MIC		98
+#define MIC_LEVEL_0DB	324	// 1023 / sqrt(10): azmix's gain 1 (see above)
+
 static const struct ctl flx4[] = {
 	FLX4_DECK(0, DEV_DECK_L),
+	{ 0xB6, 0x05, FADER14, DEV_MC, MC_MIC, MC_MIC + 1, 6 },	// MIC LEVEL
 	FLX4_DECK(1, DEV_DECK_R),
 	{ 0xB6, 0x1F, FADER14, DEV_MC, 15, 16, 0 },	// crossfader
 	{ 0xB6, 0x17, FADER14, DEV_MC, 61, 65, 6 },	// CFX ch1 -> COLOR ch1
@@ -487,6 +495,21 @@ static const uint8_t flx4_query[] = {
 // The GRV6 answers the same request with its model byte, 0x0C (found by
 // trying them, 2026-11-06): every knob and fader, the live layer of each side
 // (note 60), the Beat FX knob's position and the FX channel button.
+// The GRV6's own "host here" message, from rekordbox's Android library
+// (librekordbox.so keeps the vendor SysEx of each model side by side; 0x50 0x03
+// for model 0x0C). Sent only with -k: the user keeps the GRV6's Auto Standby
+// (it drops off USB after about half an hour untouched, and run-probe.sh puts
+// the player to sleep with it). Whether this message holds it off is not
+// tested yet.
+// FLX4 MIC INPUT setting (rekordbox: MicInputSetting, its "LowLatencyMode"
+// or "EffectMode"): 0x00 mixes the mic in the unit, 0x7F leaves it out and
+// only sends it over USB (tried on the unit, 2026-11-06). azmix mixes it,
+// with the Beat FX on the master.
+static const uint8_t flx4_init[] = { 0x9F, 0x4A, 0x7F };
+
+static const uint8_t grv6_keepalive[] = {
+	0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x0C, 0x00, 0x50, 0x03, 0xF7
+};
 static const uint8_t grv6_query[] = {
 	0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x0C, 0x00, 0x03, 0x01, 0xF7
 };
@@ -501,16 +524,20 @@ struct ctlr {
 	uint8_t return_note;	// on channel 6: held -> the boot menu
 	const uint8_t *keepalive, *query;
 	int keepalive_n;	// the query is 12 bytes
+	int keepalive_opt;	// sent only with -k
+	const uint8_t *init;	// sent once on open, after the query
+	int init_n;
 };
 
 #define NROWS(t)	(int)(sizeof(t) / sizeof((t)[0]))
 static const struct ctlr ctlrs[] = {
 	// FLX4 jog: 720 ticks per turn (as for the DDJ-400); SHIFT + SMART FADER
 	{ "flx4", "DDJFLX4", flx4, NROWS(flx4), 2, 2, 720, 0x09,
-	  flx4_keepalive, flx4_query, sizeof(flx4_keepalive) },
-	// GRV6 jog: 6449 a turn (measured on the unit); SHIFT + BACK. It sends
-	// nothing unasked and runs without a keepalive.
-	{ "grv6", "DDJGRV6", grv6, NROWS(grv6), 4, 4, 6449, 0x66, NULL, grv6_query, 0 },
+	  flx4_keepalive, flx4_query, sizeof(flx4_keepalive), 0,
+	  flx4_init, sizeof(flx4_init) },
+	// GRV6 jog: 6449 a turn (measured on the unit); SHIFT + BACK
+	{ "grv6", "DDJGRV6", grv6, NROWS(grv6), 4, 4, 6449, 0x66,
+	  grv6_keepalive, grv6_query, sizeof(grv6_keepalive), 1 },
 };
 static const struct ctlr *cur = &ctlrs[0];
 #define MAXROWS		256	// the largest map's rows
@@ -710,7 +737,7 @@ static void layers_tick(void)
 // the unit, also in rekordbox's GRV6 table), from azmix's
 // peak levels. Each segment lights from a level in dBFS (meter_db): red only
 // within half a dB of clipping, the oranges for a loud track's peaks.
-#define METER_SHM	"/dev/shm/azmix-meter"
+#define METER_SHM	"/run/xdjaz/azmix-meter"
 #define METER_MS	40
 static const float *meter;
 static int meter_sent[4] = { -1, -1, -1, -1 };
@@ -859,7 +886,39 @@ static int bfx_type, bfx_beat = 2;	// DELAY at 1/2
 #define MC_BFX_CH	120
 // Likewise byte 121: bit n = brake mixer channel n (GRV6 DRUM RELEASE).
 #define MC_BRAKE	121
+// Bytes 122..127: the player's MIXER SETTINGS, copied from its MC TX (bytes
+// 5, 6, 8, 9, 12, 16, mapped by clicking each button, 2026-11-06), for azmix:
+//   122 (TX 5)  input select, DECK3 bits 4-5, DECK4 bits 0-1: 3 DECK, 1 LINE, 2 PHONO
+//   123 (TX 6)  crossfader assign, 2 bits per deck, deck 1 at bits 6-7 ..
+//               deck 4 at bits 0-1: 0 THRU, 1 A, 2 B
+//   124 (TX 8)  bits 0-1 channel fader curve (0 slow, 1 linear, 2 fast),
+//               bits 2-3 crossfader curve (2 cut, 1 middle, 0 smooth),
+//               bit 4 ISO (else EQ), bit 6 headphones MONO SPLIT
+//   125 (TX 9)  LINK preview volume: 0 0 dB, 1 -3, 2 -6, 3 -9
+//   126 (TX 12) MIC feedback reducer: 0 off, 1 light, 2 heavy
+//   127 (TX 16) BEAT FX MIC: 0 MIC 1+2, 1 MIC 1, 2 MIC 2
+// and byte 100 (TX 10): bit 6 MIC Output to Master REC (on); byte 101
+// (TX 11, UTILITY > Mixer): bit 4 Talkover Mode Advanced (else Normal),
+// bits 0-1 Talkover Level (0 -6 dB, 1 -12, 2 -18, 3 -24).
+#define MC_SETTINGS	122
+#define MC_MIC_REC	100
+#define MC_TALKOVER	101
+static const uint8_t settings_tx[6] = { 5, 6, 8, 9, 12, 16 };
 static int lever_a, lever_b, bfx_ch = -1;
+// SHIFT + a move of the FLX4's lever puts the beat FX on the mic alone
+// (MC_BFX_CH BFX_MIC, for azmix); a move without SHIFT, back to the lever's
+// channel. Moves only: the lever's stream repeats its position.
+#define BFX_MIC	4
+static int shift_held[2];
+// The FLX4 reports the lever ten times a second, but from ~100 ms after the
+// position query until the lever first moves that stream says the 0x95 0x11
+// side is off whatever the lever (seen with the lever at MASTER: the query's
+// answer has both on, the stream then CH1). So the answer to the query
+// (LEVER_QUERY_S after opening) is taken as it is, and after it the stream
+// only once the 0x94 0x10 side changes, i.e. the lever moved.
+#define LEVER_QUERY_S	.06
+static double lever_since;		// controller opened at
+static int lever_trust;
 static double ch_bpm[4];		// effective BPM per mixer channel, 0 unknown
 static double ch_ratio[4];		// tempo ratio per channel (deck)
 static int ch_state[4];			// 3 playing, 5 paused, 6 cued; 0 unknown
@@ -868,6 +927,16 @@ static void mc_tx(const uint8_t *buf, int n)
 {
 	if (n < 92)
 		return;
+	if (frame[DEV_MC][MC_MIC_REC] != buf[10] || frame[DEV_MC][MC_TALKOVER] != buf[11]) {
+		frame[DEV_MC][MC_MIC_REC] = buf[10];
+		frame[DEV_MC][MC_TALKOVER] = buf[11];
+		dirty[DEV_MC] = 1;
+	}
+	for (int i = 0; i < 6; i++)
+		if (frame[DEV_MC][MC_SETTINGS + i] != buf[settings_tx[i]]) {
+			frame[DEV_MC][MC_SETTINGS + i] = buf[settings_tx[i]];
+			dirty[DEV_MC] = 1;
+		}
 	for (int ch = 0; ch < 4; ch++)
 		if (buf[39] & (0x10 << ch)) {
 			const uint8_t *r = buf + 40 + 12 * ch;
@@ -929,7 +998,7 @@ static void bfxind_send(snd_rawmidi_t *out, int all)
 static void bfx_report(void)
 {
 	uint8_t *f = frame[DEV_MC];
-	int src = bfx_ch >= 0 ? bfx_ch : master_deck;
+	int src = bfx_ch >= 0 && bfx_ch != BFX_MIC ? bfx_ch : master_deck;
 	double bpm = src >= 0 ? ch_bpm[src] : 0;
 	if (bpm <= 0)
 		bpm = ch_bpm[0] > 0 ? ch_bpm[0] : ch_bpm[1];
@@ -1075,13 +1144,30 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 		st = 0x90 | ch;		// note off
 	int fourdeck = cur->decks == 4;
 	if (!fourdeck && ((st == 0x94 && d1 == 0x10) || (st == 0x95 && d1 == 0x11))) {
-		*(st == 0x94 ? &lever_a : &lever_b) = on;	// FLX4 FX CH lever
-		if (lever_a || lever_b)		// both off: mid-slide
+		if (!lever_trust && now() - lever_since > LEVER_QUERY_S) {
+			if (st != 0x94 || on == lever_a)
+				return;
+			lever_trust = 1;
+		}
+		int *lv = st == 0x94 ? &lever_a : &lever_b;	// FLX4 FX CH lever
+		int moved = *lv != on;
+		*lv = on;
+		if (moved && (shift_held[0] || shift_held[1]))
+			bfx_ch = BFX_MIC;
+		else if ((moved || bfx_ch != BFX_MIC) && (lever_a || lever_b))	// both off: mid-slide
 			bfx_ch = lever_a && lever_b ? -1 : lever_a ? 0 : 1;
 		return;
 	}
 	if (!fourdeck && ((st == 0x94 && d1 == 0x11) || (st == 0x95 && d1 == 0x10)))
 		return;			// the lever's two other notes, always off
+	// SHIFT: either side's holds both decks' (the controller shifts only its
+	// own side's notes; the player sees the bit and shifts the rest itself)
+	if (type == 0x90 && ch < cur->decks && d1 == 0x3F) {
+		shift_held[SIDE(ch)] = on;
+		for (int s = 0; s < 2; s++)
+			set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, shift_held[0] || shift_held[1]);
+		return;
+	}
 	if (st == 0x96 && d1 == cur->return_note) {	// SHIFT + SMART FADER / BACK
 		return_since = on ? now() : 0;
 		return;
@@ -1211,9 +1297,10 @@ int main(int argc, char **argv)
 {
 	const char *sock_path = "/opt/xdjaz/state/tmp/azbridge.sock";
 	const char *midi_dev = NULL, *inject_path = NULL, *ctlr_name = NULL;
-	int opt;
-	while ((opt = getopt(argc, argv, "c:s:m:vt:i:")) != -1) {
+	int opt, keepalive_opt = 0;
+	while ((opt = getopt(argc, argv, "c:ks:m:vt:i:")) != -1) {
 		if (opt == 'c') ctlr_name = optarg;
+		else if (opt == 'k') keepalive_opt = 1;
 		else if (opt == 's') sock_path = optarg;
 		else if (opt == 'm') midi_dev = optarg;
 		else if (opt == 'v') verbose = 1;
@@ -1222,7 +1309,7 @@ int main(int argc, char **argv)
 			if (!(txlog = fopen(optarg, "w"))) { perror(optarg); return 1; }
 			setvbuf(txlog, NULL, _IOLBF, 0);
 		}
-		else { fprintf(stderr, "usage: azbridge [-c flx4|grv6] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo]\n"); return 2; }
+		else { fprintf(stderr, "usage: azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo]\n"); return 2; }
 	}
 	// the controller: named, else the GRV6 if its card is there, else the FLX4
 	cur = NULL;
@@ -1281,6 +1368,14 @@ int main(int argc, char **argv)
 				fprintf(stderr, "azbridge: controller %s open\n", midi_dev);
 				// it answers with the position of every knob and fader
 				snd_rawmidi_write(midi_out, cur->query, sizeof(flx4_query));
+				if (cur->init)
+					snd_rawmidi_write(midi_out, cur->init, cur->init_n);
+				lever_since = now(), lever_trust = 0;
+				// The FLX4 leaves MIC LEVEL out of its answer: until the
+				// knob moves, azmix gets it at 0 dB (its +20 dB top is
+				// 10x, so 1/sqrt(10) of the range)
+				if (cur->init)
+					set_mc10(MC_MIC, MC_MIC + 1, 6, MIC_LEVEL_0DB);
 				memset(meter_sent, 0xFF, sizeof(meter_sent));
 			}
 			else
@@ -1419,7 +1514,8 @@ int main(int argc, char **argv)
 			}
 			bfxind_send(midi_out, all);
 		}
-		if (midi_out && cur->keepalive && t >= next_keepalive) {
+		if (midi_out && cur->keepalive && (keepalive_opt || !cur->keepalive_opt) &&
+		    t >= next_keepalive) {
 			snd_rawmidi_write(midi_out, cur->keepalive, cur->keepalive_n);
 			next_keepalive = t + KEEPALIVE_MS / 1000.0;
 		}

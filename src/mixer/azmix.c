@@ -10,6 +10,22 @@
 //                      master level (+ preview with -p)
 //   out 3/4  phones  = CUE'd channels (pre-fader) mixed with master by the
 //                      headphones mixing knob, times headphones level, + preview
+//                      (MONO SPLIT: cue left, master right)
+//   REC (to the player)  the master as out 1/2 (no preview), into the player's
+//                      audio input (snd-aloop ,1,1 -> ,0,1, 8 ch, master in
+//                      1/2) for MASTER REC
+//
+// MIC: the controller's USB input (FLX4: the bridge turns off its own mic
+// mix), through the Feedback Reducer (fx.c), times MIC LEVEL, into the master
+// before the beat FX, bringing the music down while it speaks (talkover); in
+// REC unless MIC Output to Master REC is off.
+// The DDJ-GRV6 plays its mic into its master itself, and cannot be told not
+// to; its USB input is its master as it plays it (ours with the mic). That
+// is what REC takes from it while MIC Output to Master REC is on.
+//
+// MIXER SETTINGS on the player's screen reach azmix through the bridge
+// (MC bytes 122..127): crossfader assign and curve, channel fader curve,
+// EQ/ISO, headphones MONO SPLIT, LINK preview volume.
 // The DDJ-GRV6 mixes its headphones itself (MASTER CUE, MIX, LEVEL): the
 // bridge then holds MIX at CUE and LEVEL up, so out 3/4 is the cue bus alone.
 //
@@ -75,8 +91,12 @@
 #define DUMP_FRAMES	(5 * RATE / PERIOD * PERIOD)	// SIGUSR1: last ~5 s of the phones
 						// input (whole periods: ring_put)
 #define DUMP_FILE	"/tmp/azmix-phones.f32"
-#define DECKS_DEV	"hw:ALPHATHETAD810,1"	// capture of the player's ,0
-#define PHONES_DEV	"hw:ALPHATHETAD810,0"	// capture of the player's ,1
+// snd-aloop has two substreams per device: ours are named, so the player's
+// opens get the other ones (playback ,0,0 / ,1,0 and capture ,0,1).
+#define DECKS_DEV	"hw:ALPHATHETAD810,1,0"	// capture of the player's ,0
+#define PHONES_DEV	"hw:ALPHATHETAD810,0,0"	// capture of the player's ,1
+#define REC_DEV		"hw:ALPHATHETAD810,1,1"	// the player's input, ,0,1
+#define REC_CH		8
 
 static volatile sig_atomic_t stop;
 
@@ -138,8 +158,155 @@ static snd_pcm_t *open_pcm(const char *dev, snd_pcm_stream_t dir,
 // Queues PREFILL frames of silence; the output starts on the first write.
 static void prime(snd_pcm_t *out)
 {
-	static const unsigned char zero[PREFILL * 4 * 3];	// widest frame: 4 x 24 bit
+	static const unsigned char zero[PREFILL * 8 * 4];	// widest frame: 8 x 32 bit
 	snd_pcm_writei(out, zero, PREFILL);
+}
+
+// ---- microphone -------------------------------------------------------------
+//
+// The controller's USB input carries its MIC (the FLX4 in its "EffectMode",
+// which the bridge sets: the unit no longer mixes the mic itself). It runs on
+// the controller's clock, as our output, but arrives in bursts of USB
+// packets that do not line up with our periods, so it goes through a FIFO:
+// whatever is there is taken each period, and a period is handed on once
+// MIC_START frames are in. What the FIFO never runs below over a second
+// (the slack the bursts leave) is dropped down to MIC_SLACK, so the voice
+// stays a few milliseconds behind without running dry.
+//
+// The FLX4's output is clocked from this input (implicit feedback): stopping
+// or restarting the capture upsets the output, and with it the loopback's
+// clock, which stalls the whole mixer. Opening the capture while the output
+// runs does the same, so it is opened first, with a buffer that holds until
+// the mixer's loop starts, and never restarted: on an error the mic goes
+// quiet (logged) and the output carries on.
+#define MIC_FIFO	4096		// frames, a power of two
+#define MIC_START	(4 * PERIOD)
+#define MIC_SLACK	(PERIOD / 2)
+#define MIC_WINDOW	689		// periods, ~1 s
+// MIC LEVEL at the top: a voice comes from the FLX4 at about -35 dBFS
+// (measured, its ATT up), so the knob goes up to +20 dB.
+#define MIC_GAIN_MAX	10.f
+#define MIC_DUMP_FILE	"/tmp/azmix-mic.f32"	// SIGUSR1: last ~5 s, raw L/R
+
+struct mic {
+	snd_pcm_t *pcm;
+	snd_pcm_format_t fmt;
+	float gain;			// last period's, for the ramp
+	float fifo[2 * MIC_FIFO];	// L/R
+	unsigned rd, wr;		// free-running frame counters
+	int running;			// MIC_START reached
+	unsigned low, periods;		// lowest fill in this window, its age
+	int failed;			// capture error: mic off for good
+	unsigned xruns, short_periods;
+	float dump[2 * DUMP_FRAMES];
+	size_t dump_pos;
+};
+
+static void mic_open(struct mic *m, const char *dev)
+{
+	m->fmt = SND_PCM_FORMAT_S24_3LE;
+	m->pcm = open_pcm(dev, SND_PCM_STREAM_CAPTURE, m->fmt, 2, MIC_FIFO);
+	if (!m->pcm) {
+		m->fmt = SND_PCM_FORMAT_S16_LE;
+		m->pcm = open_pcm(dev, SND_PCM_STREAM_CAPTURE, m->fmt, 2, MIC_FIFO);
+	}
+	if (m->pcm) {
+		snd_pcm_nonblock(m->pcm, 1);
+		fprintf(stderr, "azmix: mic from %s (%s)\n", dev, snd_pcm_format_name(m->fmt));
+	}
+}
+
+// Moves what the device has into the FIFO.
+static void mic_fill(struct mic *m)
+{
+	unsigned char raw[256 * 2 * 3];
+	snd_pcm_sframes_t avail = snd_pcm_avail_update(m->pcm);
+	if (avail < 0) {
+		fprintf(stderr, "azmix: mic %s, mic off\n", snd_strerror((int)avail));
+		m->failed = 1;
+		return;
+	}
+	if (avail > MIC_FIFO)		// never more than the device can hold
+		avail = MIC_FIFO;
+	while (avail > 0) {
+		snd_pcm_sframes_t n = snd_pcm_readi(m->pcm, raw, avail < 256 ? avail : 256);
+		if (n == -EAGAIN || n == 0)
+			break;
+		if (n > 0)
+			avail -= n;
+		if (n < 0) {		// see above: no restart
+			fprintf(stderr, "azmix: mic %s, mic off\n", snd_strerror((int)n));
+			m->xruns++;
+			m->failed = 1;
+			return;
+		}
+		for (int i = 0; i < n; i++, m->wr++) {
+			float *d = m->fifo + 2 * (m->wr & (MIC_FIFO - 1));
+			for (int c = 0; c < 2; c++) {
+				if (m->fmt == SND_PCM_FORMAT_S24_3LE) {
+					const unsigned char *b = raw + 3 * (2 * i + c);
+					d[c] = (int32_t)((uint32_t)b[0] << 8 | (uint32_t)b[1] << 16 |
+							 (uint32_t)b[2] << 24) / 2147483648.f;
+				} else {
+					d[c] = ((int16_t *)raw)[2 * i + c] / 32768.f;
+				}
+			}
+		}
+	}
+	if (m->wr - m->rd > MIC_FIFO)	// not read for a while: start over
+		m->rd = m->wr, m->running = 0;
+}
+
+// One period of the mic, mono ((L + R) / 2: the FLX4 sends the same on
+// both) and as it came (lr); silence until the FIFO has filled, and for what
+// is missing after. Says whether the period was there.
+static int mic_read(struct mic *m, float *buf, float *lr)
+{
+	memset(buf, 0, sizeof(float) * PERIOD);
+	memset(lr, 0, sizeof(float) * 2 * PERIOD);
+	if (!m->pcm || m->failed)
+		return 0;
+	mic_fill(m);
+	unsigned have = m->wr - m->rd;
+	if (!m->running && have >= MIC_START)
+		m->running = 1, m->low = ~0u, m->periods = 0;
+	if (!m->running)
+		return 0;
+	if (have < PERIOD) {
+		m->short_periods++;
+		if ((m->short_periods & (m->short_periods - 1)) == 0)
+			fprintf(stderr, "azmix: mic short (%u)\n", m->short_periods);
+		m->running = 0;			// refill to MIC_START
+		return 0;
+	}
+	if (have - PERIOD < m->low)
+		m->low = have - PERIOD;
+	if (++m->periods >= MIC_WINDOW) {
+		if (m->low > MIC_SLACK)
+			m->rd += m->low - MIC_SLACK;
+		m->low = ~0u, m->periods = 0;
+	}
+	for (int i = 0; i < PERIOD; i++, m->rd++) {
+		const float *d = m->fifo + 2 * (m->rd & (MIC_FIFO - 1));
+		buf[i] = (d[0] + d[1]) / 2;
+		lr[2 * i] = d[0];
+		lr[2 * i + 1] = d[1];
+		m->dump[2 * m->dump_pos] = d[0];
+		m->dump[2 * m->dump_pos + 1] = d[1];
+		m->dump_pos = (m->dump_pos + 1) % DUMP_FRAMES;
+	}
+	return 1;
+}
+
+static void mic_dump(const struct mic *m)
+{
+	FILE *f = fopen(MIC_DUMP_FILE, "wb");
+	if (!f)
+		return;
+	fwrite(m->dump + 2 * m->dump_pos, sizeof(float) * 2, DUMP_FRAMES - m->dump_pos, f);
+	fwrite(m->dump, sizeof(float) * 2, m->dump_pos, f);
+	fclose(f);
+	fprintf(stderr, "azmix: mic dumped to %s\n", MIC_DUMP_FILE);
 }
 
 struct input {
@@ -174,7 +341,7 @@ static float clip(float x) { return x > 1.f ? 1.f : x < -1.f ? -1.f : x; }
 
 // ---- mixer controls -----------------------------------------------------------
 
-#define MC_SHM	"/dev/shm/azmix-mc"	// the bridge's mixer frame, 128 bytes
+#define MC_SHM	"/run/xdjaz/azmix-mc"	// the bridge's mixer frame, 128 bytes
 #define NCH	4
 
 static const uint8_t *mc;		// mapped MC_SHM, or NULL
@@ -213,7 +380,18 @@ struct controls {
 	int cfx_buttons;		// bit i = COLOR FX button i held
 	struct beatfx_params bfx;
 	int bfx_ch;			// beat FX target channel, -1 master
+	int bfx_mic;			// beat FX on the mic alone (bridge: SHIFT + lever)
 	int brake;			// bit n: brake channel n
+	// MIXER SETTINGS (bytes 122..127, see read_controls)
+	int xf_assign[NCH];		// 0 THRU, 1 A, 2 B
+	int fader_curve, xf_curve;	// 0..2, as the panel lists them
+	int iso, mono_split;
+	float preview_gain;		// LINK preview volume
+	float mic_level;		// MIC LEVEL, 0..1
+	int mic_rec;			// MIC Output to Master REC
+	int fbr_mode;			// Feedback Reducer: 0 off, 1 light, 2 heavy
+	int talk_adv;			// Talkover Mode: Advanced (mids only)
+	float talk_gain;		// Talkover Level
 };
 
 static void read_controls(struct controls *c)
@@ -228,8 +406,15 @@ static void read_controls(struct controls *c)
 		c->xfader = .5f, c->master = 1, c->hp_mix = 1, c->hp_level = 1;
 		c->cfx_buttons = 0;
 		c->bfx = (struct beatfx_params){ -1, 0, .5f, 0 };
-		c->bfx_ch = -1;
+		c->bfx_ch = -1, c->bfx_mic = 0;
 		c->brake = 0;
+		for (int n = 0; n < NCH; n++)
+			c->xf_assign[n] = n % 2 + 1;	// 1/3 on A, 2/4 on B
+		c->fader_curve = 1, c->xf_curve = 1;
+		c->iso = 1, c->mono_split = 0;
+		c->preview_gain = 1;
+		c->mic_level = 0, c->mic_rec = 1, c->fbr_mode = 0;
+		c->talk_adv = 1, c->talk_gain = powf(10, -18 / 20.f);
 		return;
 	}
 	uint8_t f[128];
@@ -257,10 +442,31 @@ static void read_controls(struct controls *c)
 	c->bfx.beat_s = (ms > 0 ? ms : 500) / 1000.f;
 	c->bfx.depth = mc10(f, 69, 70, 0);
 	c->bfx_ch = f[120] < NCH ? f[120] : -1;
+	c->bfx_mic = f[120] == NCH;
 	c->brake = f[121];
+	// MIXER SETTINGS, from the player through the bridge (its MC_SETTINGS):
+	// 122 input select (no inputs here), 123 crossfader assign, 124 curves,
+	// EQ/ISO and headphones split, 125 LINK preview volume, 126..127 mic
+	for (int n = 0; n < NCH; n++)
+		c->xf_assign[n] = (f[123] >> (6 - 2 * n)) & 3;
+	c->fader_curve = f[124] & 3;
+	c->xf_curve = (f[124] >> 2) & 3;
+	c->iso = (f[124] >> 4) & 1;
+	c->mono_split = (f[124] >> 6) & 1;
+	c->preview_gain = powf(10, -3 * (f[125] & 3) / 20.f);
+	// MIC LEVEL (the bridge's, bytes 98/99) and MIC Output to Master REC
+	// (byte 100, the player's TX 10 bit 6)
+	c->mic_level = mc10(f, 98, 99, 6);
+	c->mic_rec = (f[100] >> 6) & 1;
+	c->fbr_mode = f[126] & 3;
+	if (c->fbr_mode > 2)
+		c->fbr_mode = 0;
+	// Talkover Mode and Level (UTILITY > Mixer; byte 101, the player's TX 11)
+	c->talk_adv = (f[101] >> 4) & 1;
+	c->talk_gain = powf(10, -6 * ((f[101] & 3) + 1) / 20.f);
 }
 
-#define METER_SHM	"/dev/shm/azmix-meter"	// float peak[NCH], linear
+#define METER_SHM	"/run/xdjaz/azmix-meter"	// float peak[NCH], linear
 static float *meter;
 
 static void meter_map(void)
@@ -330,6 +536,8 @@ struct channel {
 static struct channel chans[NCH];
 static struct colorfx cfx[NCH];
 static struct beatfx bfx;
+static struct beatfx bfx_rec;	// the master's beat FX without the mic, for REC
+static struct fbr fbr;		// MIC Feedback Reducer
 static int cfx_type = -1, cfx_was;	// -1: COLOR FX off
 
 static void chans_init(void)
@@ -378,10 +586,96 @@ static void brake_run(struct channel *ch, int held)
 
 static float trim_gain(float v) { return powf(10, (v - .5f) * 24 / 20); }	// +-12 dB
 
-// kill at 0, flat at the centre, +6 dB at the top
-static float eq_gain(float v) { return v < .5f ? (v * 2) * (v * 2) : 1 + (v - .5f) * 2; }
+// flat at the centre, +6 dB at the top; at 0 ISO kills the band, EQ only
+// takes it down to -26 dB (the DJM's two modes)
+static float eq_gain(float v, int iso)
+{
+	float floor = iso ? 0 : .05f;
+	return v < .5f ? floor + (1 - floor) * (v * 2) * (v * 2) : 1 + (v - .5f) * 2;
+}
 
-static float fader_gain(float v) { return v * v; }
+// Channel fader curve, the panel's three: 0 rises late, 1 the usual,
+// 2 comes up at once.
+static float fader_gain(float v, int curve)
+{
+	if (curve == 0)
+		return v * v * v * v;
+	if (curve == 2)
+		return 1 - (1 - v) * (1 - v) * (1 - v);
+	return v * v;
+}
+
+// Crossfader gain of the side the crossfader moves away from at x = 1 (A),
+// by the panel's curves: 2 a sharp cut (scratching), 1 full to the centre
+// then down, 0 a smooth blend.
+#define XF_CUT	.04f
+static float xf_gain(float x, int curve)
+{
+	if (curve == 2)
+		return x < 1 - XF_CUT ? 1 : (1 - x) / XF_CUT;
+	if (curve == 0)
+		return cosf(x * (float)M_PI / 2);
+	return fminf(1, 2 * (1 - x));
+}
+
+// ---- talkover -----------------------------------------------------------------
+//
+// The AZ's mic switch has a TALK OVER position: while the voice is above a
+// threshold, the music goes down by Talkover Level, all of it (Normal) or
+// only its middle, where a voice is (Advanced: 250 Hz .. 2.5 kHz, the
+// isolator's bands). No controller here has that switch, so it is on while
+// the mic is: the voice itself brings the music down.
+#define TALK_THRESHOLD	.03f		// mic peak after MIC LEVEL, ~-30 dBFS
+#define TALK_HOLD_S	.4f		// stays down this long after the voice
+#define TALK_ATTACK_S	.02f
+#define TALK_RELEASE_S	.5f
+
+static struct {
+	struct biquad low[2], high[2];	// LR4 split of the master
+	float env;			// 0 music as is .. 1 fully talked over
+	float hold;			// seconds left
+} talk;
+
+static void talk_init(void)
+{
+	for (int k = 0; k < 2; k++) {
+		bq_set(&talk.low[k], 0, XOVER_LOW, (float)M_SQRT1_2);
+		bq_set(&talk.high[k], 1, XOVER_HIGH, (float)M_SQRT1_2);
+	}
+}
+
+// Brings the music (lr, PERIOD frames) down while the voice (mono, PERIOD)
+// speaks.
+static void talk_run(float *lr, const float *voice, const struct controls *c)
+{
+	float pk = 0;
+	for (int i = 0; i < PERIOD; i++)
+		pk = fmaxf(pk, fabsf(voice[i]));
+	float dt = (float)PERIOD / RATE;
+	if (pk > TALK_THRESHOLD)
+		talk.hold = TALK_HOLD_S;
+	else
+		talk.hold = fmaxf(0, talk.hold - dt);
+	float e0 = talk.env, target = talk.hold > 0;
+	float e1 = talk.env = target > e0 ? fminf(target, e0 + dt / TALK_ATTACK_S)
+					  : fmaxf(target, e0 - dt / TALK_RELEASE_S);
+	if (e0 == 0 && e1 == 0)
+		return;
+	for (int i = 0; i < PERIOD; i++) {
+		float e = e0 + (e1 - e0) * (i + 1) / PERIOD;
+		float g = 1 + (c->talk_gain - 1) * e;
+		for (int ch = 0; ch < 2; ch++) {
+			float x = lr[2 * i + ch];
+			if (!c->talk_adv) {
+				lr[2 * i + ch] = x * g;
+				continue;
+			}
+			float lo = bq_run(&talk.low[1], ch, bq_run(&talk.low[0], ch, x));
+			float hi = bq_run(&talk.high[1], ch, bq_run(&talk.high[0], ch, x));
+			lr[2 * i + ch] = lo + hi + (x - lo - hi) * g;
+		}
+	}
+}
 
 int main(int argc, char **argv)
 {
@@ -404,20 +698,25 @@ int main(int argc, char **argv)
 	static const char *const cards[] = { "hw:DDJGRV6", "hw:DDJFLX4" };
 	snd_pcm_format_t ofmt = SND_PCM_FORMAT_S24_3LE;
 	snd_pcm_t *out = NULL;
+	static struct mic mic;
+	int mic_hw = 0;			// GRV6: the controller plays the mic itself
 	for (int i = 0; !out && i < (out_dev ? 1 : 2); i++) {
 		char path[32];
 		snprintf(path, sizeof(path), "/proc/asound/%s", cards[i] + 3);
 		if (!out_dev && access(path, F_OK) < 0)
 			continue;
 		const char *dev = out_dev ? out_dev : cards[i];
+		mic_open(&mic, dev);	// before the output: see the mic's notes
 		ofmt = SND_PCM_FORMAT_S24_3LE;
 		out = open_pcm(dev, SND_PCM_STREAM_PLAYBACK, ofmt, 4, OUT_BUFFER);
 		if (!out) {
 			ofmt = SND_PCM_FORMAT_S16_LE;
 			out = open_pcm(dev, SND_PCM_STREAM_PLAYBACK, ofmt, 4, OUT_BUFFER);
 		}
-		if (out)
+		if (out) {
 			out_dev = dev;
+			mic_hw = strstr(dev, "GRV6") != NULL;
+		}
 	}
 	if (!out)
 		return 1;
@@ -430,6 +729,20 @@ int main(int argc, char **argv)
 			      phones.ch, IN_BUFFER);
 	if (!decks.pcm || !phones.pcm)
 		return 1;
+	// MASTER REC: the player records its audio input (the AZ's mixer sends
+	// it the master); here the master as it is heard, after the MASTER level
+	// (before it the sum of four channels has no headroom and clips). Never
+	// waits: what the loopback cannot take is dropped.
+	// The player's input is the capture side of its "outs" (asound.conf: a
+	// multi of ,0 x8 and ,1 x2; JUCE probes "outs" for input and uses the
+	// first two channels), so this side has 8 channels, the master in 1/2.
+	snd_pcm_t *rec = open_pcm(REC_DEV, SND_PCM_STREAM_PLAYBACK, SND_PCM_FORMAT_S32_LE,
+				  REC_CH, IN_BUFFER);
+	if (rec) {
+		snd_pcm_nonblock(rec, 1);
+		prime(rec);
+		snd_pcm_start(rec);
+	}
 	fprintf(stderr, "azmix: decks %s + phones %s -> %s (%s)\n", DECKS_DEV,
 		PHONES_DEV, out_dev, snd_pcm_format_name(ofmt));
 
@@ -438,9 +751,12 @@ int main(int argc, char **argv)
 	unsigned underruns = 0, map_tries = 0;
 
 	chans_init();
+	talk_init();
 	for (int n = 0; n < NCH; n++)
 		colorfx_init(&cfx[n], RATE);
 	beatfx_init(&bfx, RATE);
+	beatfx_init(&bfx_rec, RATE);
+	fbr_init(&fbr, RATE);
 	fx_flush_denormals();
 	mc_map();
 	meter_map();
@@ -452,6 +768,7 @@ int main(int argc, char **argv)
 		if (dump) {
 			dump = 0;
 			ring_dump();
+			mic_dump(&mic);
 		}
 
 		if (!mc && ++map_tries % 700 == 0)	// about once a second
@@ -461,7 +778,7 @@ int main(int argc, char **argv)
 
 		// target gains for this period; each ramps from the last period's
 		float t_trim[NCH], t_eq[NCH][3], t_post[NCH];
-		float xa = fminf(1, 2 * (1 - ctl.xfader)), xb = fminf(1, 2 * ctl.xfader);
+		float xa = xf_gain(ctl.xfader, ctl.xf_curve), xb = xf_gain(1 - ctl.xfader, ctl.xf_curve);
 		for (int n = 0; n < NCH; n++) {
 			struct channel *ch = &chans[n];
 			if (ctl.cue_button[n] && !ch->cue_was)	// CUE toggles
@@ -469,15 +786,17 @@ int main(int argc, char **argv)
 			ch->cue_was = ctl.cue_button[n];
 			t_trim[n] = trim_gain(ctl.trim[n]);
 			for (int k = 0; k < 3; k++)
-				t_eq[n][k] = eq_gain(ctl.eq[n][k]);
-			// channels 1 and 3 on the crossfader's A side, 2 and 4 on B
-			t_post[n] = fader_gain(ctl.fader[n]) * (n % 2 ? xb : xa);
+				t_eq[n][k] = eq_gain(ctl.eq[n][k], ctl.iso);
+			// CROSSFADER ASSIGN: THRU, A or B
+			int as = ctl.xf_assign[n];
+			t_post[n] = fader_gain(ctl.fader[n], ctl.fader_curve) *
+				    (as == 1 ? xa : as == 2 ? xb : 1);
 		}
 		for (int i = 0; i < 6; i++)		// COLOR FX: a press picks or ends
 			if ((ctl.cfx_buttons & ~cfx_was) & (1 << i))
 				cfx_type = cfx_type == i ? -1 : i;
 		cfx_was = ctl.cfx_buttons;
-		float g_master = fader_gain(ctl.master), g_hp = fader_gain(ctl.hp_level);
+		float g_master = ctl.master * ctl.master, g_hp = ctl.hp_level * ctl.hp_level;
 		// one beat FX state: on a lever move it carries on at the new target
 		int bfx_at = ctl.bfx_ch;
 
@@ -512,6 +831,7 @@ int main(int argc, char **argv)
 		// master and cue sums, then the beat FX on the master; a channel's
 		// beat FX takes it after the fader, into fbuf
 		float mbuf[2 * PERIOD], cbuf[2 * PERIOD], fbuf[2 * PERIOD];
+		int32_t rbuf[REC_CH * PERIOD] = { 0 };
 		for (int i = 0; i < PERIOD; i++) {
 			float r = (i + 1) / (float)PERIOD;
 			for (int c = 0; c < 2; c++) {
@@ -531,20 +851,70 @@ int main(int argc, char **argv)
 				cbuf[2 * i + c] = cue;
 			}
 		}
-		if (bfx_at < 0) {
+		// MIC: into the master before its beat FX (an effect on the master
+		// takes the voice too); left out of REC when MIC Output to Master
+		// REC is off, which with the effect on the master needs the master's
+		// effect a second time without it.
+		float micb[PERIOD], mic_dry[2 * PERIOD], hw_rec[2 * PERIOD];
+		int hw_ok = mic_read(&mic, micb, hw_rec);
+		if (mic_hw)		// not the mic alone: the controller's master
+			memset(micb, 0, sizeof(micb));
+		float howl_hz;
+		if (fbr_process(&fbr, ctl.fbr_mode, micb, PERIOD, &howl_hz))
+			fprintf(stderr, "azmix: feedback at %.0f Hz, notch %u\n", howl_hz, fbr.set);
+		float g_mic = ctl.mic_level * ctl.mic_level * MIC_GAIN_MAX;
+		for (int i = 0; i < PERIOD; i++) {
+			float gm = mic.gain + (g_mic - mic.gain) * (i + 1) / PERIOD;
+			mic_dry[2 * i] = mic_dry[2 * i + 1] = micb[i] * gm;
+		}
+		mic.gain = g_mic;
+		float voice[PERIOD];
+		for (int i = 0; i < PERIOD; i++)
+			voice[i] = mic_dry[2 * i];
+		talk_run(mbuf, voice, &ctl);
+		int rec_nomic = !ctl.mic_rec && mic.pcm;
+		float rmbuf[2 * PERIOD];
+		if (rec_nomic)
+			memcpy(rmbuf, mbuf, sizeof(rmbuf));
+		if (ctl.bfx_mic)	// the beat FX on the voice alone
+			beatfx_process(&bfx, &ctl.bfx, mic_dry, PERIOD);
+		for (int i = 0; i < 2 * PERIOD; i++)
+			mbuf[i] += mic_dry[i];
+		if (ctl.bfx_mic)
+			;
+		else if (bfx_at < 0) {
 			beatfx_process(&bfx, &ctl.bfx, mbuf, PERIOD);
+			if (rec_nomic)
+				beatfx_process(&bfx_rec, &ctl.bfx, rmbuf, PERIOD);
 		} else {
 			beatfx_process(&bfx, &ctl.bfx, fbuf, PERIOD);
 			for (int i = 0; i < 2 * PERIOD; i++)
 				mbuf[i] += fbuf[i];
+			if (rec_nomic)
+				for (int i = 0; i < 2 * PERIOD; i++)
+					rmbuf[i] = mbuf[i] - mic_dry[i];
 		}
+		const float *recm = rec_nomic ? rmbuf : mbuf;
+		// GRV6: REC from its master (with the mic) while that is on and
+		// there, else ours; a period's crossfade between them
+		static float hw_mix;
+		float hw0 = hw_mix, hw1 = hw_mix = mic_hw && ctl.mic_rec && hw_ok;
 
 		for (int i = 0; i < PERIOD; i++) {
 			const float *p = pbuf + 2 * i, *m = mbuf + 2 * i, *cue = cbuf + 2 * i;
 			float o[4];
 			for (int c = 0; c < 2; c++) {
-				o[c] = m[c] * g_master + (preview_master ? p[c] : 0);
-				o[2 + c] = (cue[c] * (1 - ctl.hp_mix) + m[c] * g_master * ctl.hp_mix) * g_hp + p[c];
+				float pv = p[c] * ctl.preview_gain;
+				o[c] = m[c] * g_master + (preview_master ? pv : 0);
+				o[2 + c] = (cue[c] * (1 - ctl.hp_mix) + m[c] * g_master * ctl.hp_mix) * g_hp + pv;
+				float h = hw0 + (hw1 - hw0) * (i + 1) / PERIOD;
+				float rv = recm[2 * i + c] * g_master * (1 - h) + hw_rec[2 * i + c] * h;
+				rbuf[REC_CH * i + c] = (int32_t)(clip(rv) * 2147483520.f);
+			}
+			if (ctl.mono_split) {	// MONO SPLIT: cue left, master right
+				float pv = (p[0] + p[1]) / 2 * ctl.preview_gain;
+				o[2] = (cue[0] + cue[1]) / 2 * g_hp + pv;
+				o[3] = (m[0] + m[1]) / 2 * g_master * g_hp;
 			}
 			for (int c = 0; c < 4; c++) {
 				float x = clip(o[c]);
@@ -562,6 +932,13 @@ int main(int argc, char **argv)
 			memcpy(chans[n].g_eq, t_eq[n], sizeof(t_eq[n]));
 			chans[n].g_post = t_post[n];
 		}
+		if (rec) {
+			snd_pcm_sframes_t r = snd_pcm_writei(rec, rbuf, PERIOD);
+			if (r < 0 && r != -EAGAIN && snd_pcm_recover(rec, (int)r, 1) == 0) {
+				prime(rec);
+				snd_pcm_start(rec);
+			}
+		}
 		snd_pcm_sframes_t n = snd_pcm_writei(out, obuf, PERIOD);
 		if (n < 0) {
 			underruns++;
@@ -572,6 +949,8 @@ int main(int argc, char **argv)
 		}
 	}
 	snd_pcm_close(out);
+	if (rec) snd_pcm_close(rec);
+	if (mic.pcm) snd_pcm_close(mic.pcm);
 	if (phones.pcm) snd_pcm_close(phones.pcm);
 	if (decks.pcm) snd_pcm_close(decks.pcm);
 	return 0;

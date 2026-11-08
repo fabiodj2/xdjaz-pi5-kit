@@ -335,14 +335,15 @@ void beatfx_init(struct beatfx *fx, float rate)
 
 // DELAY, ECHO, PING PONG. A tap at beat_s whose repeats go through gentle
 // low and high cuts, so they get darker and thinner like a tape echo. DELAY
-// has little feedback (one main repeat) and drops its wet part when off;
+// repeats once (no feedback, as the DJM's: "outputs a delay sound once") and
+// drops its wet part when off;
 // ECHO and PING PONG only close their input, the repeats ring out.
 static void bx_echo(struct beatfx *fx, float *lr, int n, int on, float beat, float depth)
 {
 	int t = fx->type;
 	float ing0 = fx->ing, ing1 = fx->ing = slew(ing0, on, bc(fx->c_fast, n));
 	float lv0 = fx->lvl, lv1 = fx->lvl = slew(lv0, t == BFX_DELAY && !on ? 0 : depth, bc(fx->c_slow, n));
-	float fb0 = fx->fb, fb1 = fx->fb = slew(fb0, t == BFX_DELAY ? .2f : .45f + .25f * depth,
+	float fb0 = fx->fb, fb1 = fx->fb = slew(fb0, t == BFX_DELAY ? 0 : .45f + .25f * depth,
 						bc(fx->c_slow, n));
 	float inv = 1.f / n, pk = 0;
 
@@ -1091,4 +1092,191 @@ void colorfx_process(struct colorfx *fx, int type, float knob, float *lr, int fr
 {
 	for (int i = 0; i < frames; i += FX_BLOCK)
 		color_block(fx, type, knob, lr + 2 * i, mini(FX_BLOCK, frames - i));
+}
+
+// ---- MIC Feedback Reducer --------------------------------------------------------
+
+void fbr_init(struct fbr *r, float rate)
+{
+	memset(r, 0, sizeof(*r));
+	r->rate = rate;
+}
+
+// RBJ peaking EQ, cut by gain_db at f with quality q
+static void fbr_set(struct fbr_notch *n, float rate, float f, float gain_db)
+{
+	float A = powf(10, gain_db / 40), w = 2 * (float)M_PI * f / rate;
+	float al = sinf(w) / (2 * 25.f), cw = cosf(w);	// Q 25: ~1/20 octave
+	float a0 = 1 + al / A;
+	n->f = f, n->gain_db = gain_db, n->age = 0;
+	n->b0 = (1 + al * A) / a0;
+	n->b1 = -2 * cw / a0;
+	n->b2 = (1 - al * A) / a0;
+	n->a1 = -2 * cw / a0;
+	n->a2 = (1 - al / A) / a0;
+}
+
+// in-place radix-2 complex FFT, n a power of two
+static void fbr_fft(float *re, float *im, int n)
+{
+	for (int i = 1, j = 0; i < n; i++) {
+		int bit = n >> 1;
+		for (; j & bit; bit >>= 1)
+			j ^= bit;
+		j ^= bit;
+		if (i < j) {
+			float t = re[i]; re[i] = re[j]; re[j] = t;
+			t = im[i]; im[i] = im[j]; im[j] = t;
+		}
+	}
+	for (int len = 2; len <= n; len <<= 1) {
+		float a = -2 * (float)M_PI / len, wr = cosf(a), wi = sinf(a);
+		for (int i = 0; i < n; i += len) {
+			float cr = 1, ci = 0;
+			for (int k = 0; k < len / 2; k++) {
+				float *ur = re + i + k, *ui = im + i + k;
+				float *vr = re + i + k + len / 2, *vi = im + i + k + len / 2;
+				float tr = *vr * cr - *vi * ci, ti = *vr * ci + *vi * cr;
+				*vr = *ur - tr, *vi = *ui - ti;
+				*ur += tr, *ui += ti;
+				float ncr = cr * wr - ci * wi;
+				ci = cr * wi + ci * wr, cr = ncr;
+			}
+		}
+	}
+}
+
+// One analysis: the strongest narrow peak, if it stands out enough, counts
+// as a candidate; enough hits in a row and it gets a notch.
+static int fbr_analyse(struct fbr *r, float *hz)
+{
+	static float re[FBR_N], im[FBR_N], db[FBR_N / 2];
+	const int heavy = r->mode == 2;
+	const float par = heavy ? 12 : 16;		// dB above the neighbourhood
+	const int need = heavy ? 6 : 12;		// analyses in a row (35 / 70 ms)
+	const int max = heavy ? FBR_NOTCHES : 4;
+	const float depth = heavy ? -15 : -9, deepest = heavy ? -30 : -18;
+
+	for (int i = 0; i < FBR_N; i++) {
+		float w = .5f - .5f * cosf(2 * (float)M_PI * i / FBR_N);
+		re[i] = r->in[(r->pos + i) % FBR_N] * w;
+		im[i] = 0;
+	}
+	fbr_fft(re, im, FBR_N);
+	for (int k = 1; k < FBR_N / 2; k++)
+		db[k] = 10 * log10f(re[k] * re[k] + im[k] * im[k] + 1e-12f);
+
+	// 200 Hz .. 8 kHz; the loudest local maximum
+	float bw = r->rate / FBR_N;
+	int lo = (int)(200 / bw), hi = mini((int)(8000 / bw), FBR_N / 2 - 20), best = 0;
+	for (int k = lo; k <= hi; k++)
+		if (db[k] > db[k - 1] && db[k] >= db[k + 1] && (!best || db[k] > db[best]))
+			best = k;
+	int found = 0;
+	float f = 0;
+	if (best) {
+		float sum = 0;
+		int cnt = 0;
+		for (int d = 3; d <= 16; d++) {
+			if (best - d > 0)
+				sum += db[best - d], cnt++;
+			sum += db[best + d], cnt++;
+		}
+		// -54 dB: a full-scale sine comes out about +48 here
+		// howling is a pure tone: a voice or an instrument has partials at
+		// twice (or half) the frequency, not far below
+		float harm = -200;
+		for (int m = 0; m < 2; m++) {
+			int k = m ? best / 2 : best * 2;
+			if (k > 1 && k < FBR_N / 2 - 1)
+				harm = fmaxf(harm, fmaxf(db[k - 1], fmaxf(db[k], db[k + 1])));
+		}
+		if (db[best] > -6 && db[best] - sum / cnt > par && db[best] - harm > 20) {
+			float a = db[best - 1], b = db[best], c = db[best + 1];
+			float p = .5f * (a - c) / (a - 2 * b + c);
+			f = (best + p) * bw;
+			found = 1;
+		}
+	}
+	// candidates: a hit near one counts on, the rest start over
+	int hit = -1;
+	for (int i = 0; i < FBR_NOTCHES; i++) {
+		struct fbr_cand *c = &r->c[i];
+		// it must hold its pitch (a voice glides): within half a bin of
+		// where it was first seen
+		if (found && c->hits && fabsf(c->f - f) < bw * .5f) {
+			c->hits++;
+			hit = i;
+		} else {
+			c->hits = 0;
+		}
+	}
+	if (found && hit < 0)
+		for (int i = 0; i < FBR_NOTCHES; i++)
+			if (!r->c[i].hits) {
+				r->c[i].f = f, r->c[i].hits = 1;
+				break;
+			}
+	for (int i = 0; i < FBR_NOTCHES; i++)
+		r->n[i].age++;
+	if (hit < 0 || r->c[hit].hits < need)
+		return 0;
+	f = r->c[hit].f;
+	r->c[hit].hits = 0;
+	// a notch already there goes deeper; else a free one, else the oldest
+	struct fbr_notch *use = NULL;
+	for (int i = 0; i < max; i++)
+		if (r->n[i].f && fabsf(r->n[i].f - f) < f * .03f)
+			use = &r->n[i];
+	if (use) {
+		fbr_set(use, r->rate, use->f, fmaxf(deepest, use->gain_db - 3));
+	} else {
+		for (int i = 0; i < max && !use; i++)
+			if (!r->n[i].f)
+				use = &r->n[i];
+		if (!use) {			// all taken: the oldest
+			use = &r->n[0];
+			for (int i = 1; i < max; i++)
+				if (r->n[i].age > use->age)
+					use = &r->n[i];
+		}
+		float s1 = use->s1, s2 = use->s2;
+		fbr_set(use, r->rate, f, depth);
+		use->s1 = s1, use->s2 = s2;
+	}
+	r->set++;
+	*hz = f;
+	return 1;
+}
+
+int fbr_process(struct fbr *r, int mode, float *x, int frames, float *hz)
+{
+	if (mode != r->mode) {
+		float rate = r->rate;
+		fbr_init(r, rate);
+		r->mode = mode;
+	}
+	if (!mode)
+		return 0;
+	int news = 0;
+	for (int i = 0; i < frames; i++) {
+		float v = x[i];
+		for (int k = 0; k < FBR_NOTCHES; k++) {
+			struct fbr_notch *n = &r->n[k];
+			if (!n->f)
+				continue;
+			float y = n->b0 * v + n->s1;
+			n->s1 = n->b1 * v - n->a1 * y + n->s2;
+			n->s2 = n->b2 * v - n->a2 * y;
+			v = y;
+		}
+		x[i] = v;
+		r->in[r->pos] = v;
+		r->pos = (r->pos + 1) % FBR_N;
+		if (++r->since >= FBR_HOP) {
+			r->since = 0;
+			news |= fbr_analyse(r, hz);
+		}
+	}
+	return news;
 }
