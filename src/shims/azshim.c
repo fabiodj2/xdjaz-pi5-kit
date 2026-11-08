@@ -29,7 +29,7 @@
 // _v2, so ours calls libsqlcipher's sqlite3_key_v2 the way the real one does.
 //
 // SubCpu (UCOM): the deck's controls come from microcontrollers behind
-// /dev/subucom_spi{1,2,3,5}.0 (see az-pi5/bridge/UCOM-PROTOCOL.md). Opening
+// /dev/subucom_spi{1,2,3,5}.0 (see bridge/UCOM-PROTOCOL.md). Opening
 // one connects a SOCK_SEQPACKET socket to our bridge daemon instead and sends
 // the device name; each packet the bridge sends is one full RX frame, which
 // the player reads as from the device. The device's 'p' ioctls are answered

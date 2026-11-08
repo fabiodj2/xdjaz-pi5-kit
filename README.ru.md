@@ -208,7 +208,6 @@ scripts/extract-rootfs.sh  образ 1.30 -> файловая система п
 scripts/setup-pi.sh        установка на Pi
 systemd/xdjaz.service      служба: плеер при загрузке, перезапуск, ожидание пульта
 src/                       исходники наших программ
-make-kit.sh                для автора: обновляет src/ из рабочей копии автора
 ```
 
 `extract-rootfs.sh` работает и сам по себе:

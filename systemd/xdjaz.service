@@ -2,7 +2,7 @@
 Description=xdjaz - XDJ-AZ player (EP147 1.30) with the DDJ-GRV6 or DDJ-FLX4
 # The kit's unit: the player is the only thing on this Pi's screen, started at
 # boot and started again whenever it ends or fails (for the boot-menu setup
-# see az-pi5/deploy/xdjaz.service instead).
+# see src/deploy/xdjaz.service instead).
 After=systemd-udev-settle.service sound.target local-fs.target
 # The tty1 login would share the screen with the player's X (setup-pi.sh turns
 # it off; this keeps the two apart should it be started by hand).

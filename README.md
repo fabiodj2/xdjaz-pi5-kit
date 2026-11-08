@@ -212,7 +212,6 @@ scripts/extract-rootfs.sh  1.30 image -> the player's file system (any Linux)
 scripts/setup-pi.sh        install on the Pi
 systemd/xdjaz.service      the service: player at boot, restart, waits for the controller
 src/                       the sources of our programs
-make-kit.sh                for the author: refreshes src/ from the author's working tree
 ```
 
 `extract-rootfs.sh` works on its own too:
