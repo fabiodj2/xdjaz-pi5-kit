@@ -268,6 +268,8 @@ AZ-MODS is a separate project under its own license (GPL-3.0).
 [fabiodj2](https://github.com/fabiodj2), also
 [@fabiodj2](https://www.instagram.com/fabiodj2) on Instagram, for
 helping me out with a question.
+[AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods) — the OneLibrary
+key that opens the stick's library.
 
 ## License
 
