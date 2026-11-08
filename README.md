@@ -263,6 +263,11 @@ are responsible for using it lawfully. Not affiliated with AlphaTheta or
 Pioneer DJ; XDJ-AZ, DDJ-GRV6, DDJ-FLX4 and rekordbox are their trademarks.
 AZ-MODS is a separate project under its own license (GPL-3.0).
 
+## Thanks
+
+[fabiodj2](https://github.com/fabiodj2) for helping me out with a
+question.
+
 ## License
 
 Non-commercial use with attribution: see [LICENSE](LICENSE). Use in your
