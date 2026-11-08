@@ -11,6 +11,8 @@ programs in this repository.
 
 From "I have the 1.30 image" to a Pi that boots into the player: one command.
 
+Questions, help and just AZ talk: [Discord](https://discord.gg/wJSM9wFAcK).
+
 ## What you need
 
 | | |
@@ -248,6 +250,8 @@ checks the player's md5.
 
 - Firmware **1.30** only: the fixes and maps are made for this player build
   (md5 `3518275e8b4d5d63636d8d7b4468d7ba`); the script refuses any other.
+  (If you have the 2.00 image or the LUKS key that unpacks Pioneer's `.upd`
+  files — you know where to find me.)
 - The player runs without a network: no streaming, Pro DJ Link or updates.
 - No Bluetooth.
 - No limiter: hot tracks clip with TRIM above centre.
