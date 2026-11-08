@@ -264,10 +264,10 @@ rekordbox — їхні торговельні марки. AZ-MODS — окрем
 
 ## Подяки
 
-[fabiodj2](https://github.com/fabiodj2) (в Instagram:
-[@fabiodj2](https://www.instagram.com/fabiodj2)) — за допомогу з питанням.
-[AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods) — за ключ
-OneLibrary, що відкриває бібліотеку на флешці.
+- [fabiodj2](https://github.com/fabiodj2) (в Instagram:
+  [@fabiodj2](https://www.instagram.com/fabiodj2)) — за допомогу з питанням.
+- [AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods) — за ключ
+  OneLibrary, що відкриває бібліотеку на флешці.
 
 ## Ліцензія
 
