@@ -263,8 +263,62 @@ int semget(key_t key, int nsems, int semflg)
 // /bin/sh). There is no mlan0 here, so it ran about 300 times a second and
 // cost about one core. That one command now fails in the vfork child without
 // an exec, after AZ_WPA_WAIT_MS (default 1000; the parent thread waits on
-// the child). Every other execl goes through unchanged.
+// the child). With the Wi-Fi broker below running, it answers this one too,
+// with 0, and the player's Wi-Fi starts. Every other execl goes through
+// unchanged.
 #define WPA_STATUS "wpa_cli -i mlan0 status > /dev/null 2>&1"
+
+// Wi-Fi broker (AZ_WIFI_SOCK, a unix socket path inside the sandbox): the
+// player's Wi-Fi commands (wpa_supplicant/wpa_cli/iw/ifconfig on mlan0) go to
+// azwifi.py on the host, which runs them on the host's wlan0 and writes any
+// output the player reads (/tmp/shelloutput/..., /tmp/scan.log) itself. We
+// send the whole command line, close our side, and get back the exit code as
+// decimal text. Raw syscalls: this runs in exec_system's vfork child. Returns
+// -1 if there is no broker (the command then runs as before).
+static const char *const wifi_prefix[] = {
+	"wpa_cli -i mlan0", "wpa_supplicant -i mlan0", "killall wpa_supplicant",
+	"iw dev mlan0", "ifconfig mlan0",
+};
+
+static int wifi_broker(const char *cmd)
+{
+	size_t i, len;
+	int hit = 0;
+	for (i = 0; i < sizeof(wifi_prefix) / sizeof(*wifi_prefix); i++)
+		if (!strncmp(cmd, wifi_prefix[i], strlen(wifi_prefix[i])))
+			hit = 1;
+	const char *sp = getenv("AZ_WIFI_SOCK");
+	if (!hit || !sp || !*sp)
+		return -1;
+	struct sockaddr_un sa = { .sun_family = AF_UNIX };
+	for (i = 0; sp[i] && i < sizeof(sa.sun_path) - 1; i++)
+		sa.sun_path[i] = sp[i];
+	int fd = (int)syscall(SYS_socket, AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return -1;
+	if (syscall(SYS_connect, fd, &sa, sizeof(sa)) < 0) {
+		syscall(SYS_close, fd);
+		return -1;
+	}
+	len = strlen(cmd);
+	for (i = 0; i < len;) {
+		long w = syscall(SYS_write, fd, cmd + i, len - i);
+		if (w <= 0)
+			break;
+		i += (size_t)w;
+	}
+	syscall(SYS_shutdown, fd, SHUT_WR);
+	char buf[16];
+	long n = 0, r;
+	while (n < (long)sizeof(buf) &&
+	    (r = syscall(SYS_read, fd, buf + n, sizeof(buf) - n)) > 0)
+		n += r;
+	syscall(SYS_close, fd);
+	int rc = 0, got = 0;
+	for (long k = 0; k < n && buf[k] >= '0' && buf[k] <= '9'; k++, got = 1)
+		rc = rc * 10 + buf[k] - '0';
+	return got ? rc & 0xff : -1;
+}
 
 int execl(const char *path, const char *arg, ...)
 {
@@ -280,6 +334,11 @@ int execl(const char *path, const char *arg, ...)
 	if (argv[n - 1]) {
 		errno = E2BIG;
 		return -1;
+	}
+	if (n == 4 && !strcmp(path, "/bin/sh") && !strcmp(argv[1], "-c")) {
+		int rc = wifi_broker(argv[2]);
+		if (rc >= 0)
+			_exit(rc);
 	}
 	if (n == 4 && !strcmp(path, "/bin/sh") && !strcmp(argv[1], "-c") &&
 	    !strcmp(argv[2], WPA_STATUS)) {

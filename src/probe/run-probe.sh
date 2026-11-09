@@ -74,6 +74,42 @@ fi
 KEYBIND=""
 [ -r /opt/xdjaz/keys/onelibrary.key ] && KEYBIND="--ro-bind /opt/xdjaz/keys/onelibrary.key /etc/azshim/onelibrary.key"
 
+# Network (AZ_NET=1; default: none): the player shares the host network
+# namespace as a deck with internet does -- its own /etc/hosts and CA store.
+# Only DNS is the host's: the rootfs resolv.conf is a link to
+# /run/resolv.conf, and /run is a tmpfs here. Its internet check wants eth0 or
+# mlan0 UP: a dummy mlan0 (the deck's Wi-Fi name), and the link state files
+# its link monitor reads ("up"/"up-pend"/"down", no newline).
+NETNS="--unshare-net"
+NETBIND=""
+if [ "${AZ_NET:-0}" = 1 ]; then
+  sudo ip link show mlan0 >/dev/null 2>&1 || sudo ip link add mlan0 type dummy
+  sudo ip link set mlan0 up
+  printf up   > "$STATE/net_mlan0_state.dat"
+  printf down > "$STATE/net_eth0_state.dat"
+  NETNS=""
+  NETBIND="--ro-bind /etc/resolv.conf /run/resolv.conf \
+           --ro-bind $STATE/net_mlan0_state.dat /var/net_mlan0_state.dat \
+           --ro-bind $STATE/net_eth0_state.dat /var/net_eth0_state.dat"
+  # Wi-Fi from the player's own screen (AZ_WIFI=1, default): azshim sends its
+  # wpa_cli/iw/ifconfig on mlan0 to the host broker (wifi/azwifi.py, root,
+  # NetworkManager or the host's wpa_supplicant) through this socket in the
+  # player's /tmp. No broker running = the commands run in the sandbox as
+  # before. The player's Wi-Fi MAC is the host's first Wi-Fi interface's
+  # (AZWIFI_IFACE to pick another).
+  if [ "${AZ_WIFI:-1}" = 1 ]; then
+    NETBIND="$NETBIND --setenv AZ_WIFI_SOCK /tmp/azwifi.sock"
+    WIF=${AZWIFI_IFACE:-}
+    if [ -z "$WIF" ]; then
+      for d in /sys/class/net/*/wireless; do
+        [ -d "$d" ] && { WIF=$(basename "$(dirname "$d")"); break; }
+      done
+    fi
+    [ -n "$WIF" ] && [ -r "/sys/class/net/$WIF/address" ] &&
+      tr -d '\n' < "/sys/class/net/$WIF/address" > "$STATE/tmp/mlan0Addr"
+  fi
+fi
+
 if [ "${XORG:-0}" = 1 ]; then
   # the panel's touch controller glitches; X gets it through the aztouch filter.
   # With the UI at 1:1 in the middle (PANEL=juce, the window at x 31..992),
@@ -208,13 +244,13 @@ ${STRACE:-} bwrap \
   --ro-bind "$ASOUND" /etc/asound.conf \
   --setenv AZ_SCALE8 "$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)" \
   --setenv LD_PRELOAD $PRELOAD \
-  $USBBIND $KEYBIND $MODBIND ${GUARD:-} \
+  $USBBIND $KEYBIND $MODBIND $NETBIND ${GUARD:-} \
   --setenv DISPLAY $DISP \
   --setenv HOME /home/root \
   --setenv PATH /usr/bin:/bin:/usr/sbin:/sbin \
   --chdir /home/root/pdj \
   --unshare-user --uid 0 --gid 0 \
-  --unshare-pid --unshare-net --unshare-ipc --die-with-parent \
+  --unshare-pid $NETNS --unshare-ipc --die-with-parent \
   ./EP147 >> /opt/xdjaz/ep147.log 2>&1 &
 BPID=$!
 }

@@ -1,0 +1,11 @@
+[Unit]
+Description=azwifi: the XDJ-AZ player's Wi-Fi screen drives wlan0
+After=NetworkManager.service
+Before=xdjaz.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/xdjaz/wifi/azwifi.py /opt/xdjaz/state
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

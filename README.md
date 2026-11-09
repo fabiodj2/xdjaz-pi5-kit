@@ -45,6 +45,7 @@ scp mods-v1.2.8.tar.gz pi:          # for AZ-MODS
 cd ~/xdjaz-pi5-kit
 sudo ./scripts/setup-pi.sh --iso ~/XDJAZv130.iso --key ~/onelibrary.key
 #   add --azmods ~/mods-v1.2.8.tar.gz for AZ-MODS
+#   add --network for the network and the player's Wi-Fi screen
 ```
 
 The script installs the packages, extracts the player's file system from the
@@ -66,6 +67,17 @@ stick: it shows in SOURCE as USB1.
 - **Stop** it: `sudo systemctl stop xdjaz` (until the next boot). No autostart
   at all: `sudo systemctl disable xdjaz && sudo systemctl enable getty@tty1`.
 - While the player runs, the Pi's console is reached over SSH.
+
+**Network and Wi-Fi** (`--network`, off by default). The player shares the
+Pi's network, and its own Wi-Fi screen (the Wi-Fi icon at the top → Wi-Fi
+Setting) runs the Pi's Wi-Fi: the list is what the Pi's Wi-Fi sees, the
+network picked there is joined by the Pi, and Wi-Fi ON/OFF switches the Pi's
+Wi-Fi. `azwifi.py` (the `azwifi` service, root) does it through
+NetworkManager, Raspberry Pi OS' default, or else the Pi's own
+`wpa_supplicant`; it finds the Wi-Fi interface itself (`AZWIFI_IFACE`,
+`AZWIFI_BACKEND=nm|wpa` to choose). Networks joined from the player are kept
+as `azwifi-<name>`; the Pi's own networks are left alone. SSH over Ethernet is
+not touched.
 
 ## What works
 
@@ -207,7 +219,7 @@ The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75)
 
 | Program | Stands in for |
 |---|---|
-| `EP147` | the player from the firmware, unchanged. It runs in `bwrap`: its own root, user 0 in its own namespace, no network, a minimal `/dev` |
+| `EP147` | the player from the firmware, unchanged. It runs in `bwrap`: its own root, user 0 in its own namespace, no network (the Pi's with `--network`), a minimal `/dev` |
 | `azshim.so` | the AZ's kernel: connects the player to the bridge instead of the microcontrollers, USB stick events, the OneLibrary key, small drawing fixes |
 | `azbridge` | the AZ panel's microcontrollers: button and knob frames from the controller's MIDI, controller LEDs from the player's frames. It also runs the Beat FX, as the AZ's mixer processor does |
 | `azmix` | the AZ's hardware mixer: EQ, COLOR FX, faders, Beat FX, CUE, out to the controller's sound card in real time |
@@ -215,6 +227,7 @@ The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75)
 | `azstrip.py` | the buttons the AZ has above its screen, drawn right of the player (`STRIP`) |
 | `azvsync` | the screen's frame times, which the player paints by |
 | `xdjaz-usb.sh` | USB stick hot-plug |
+| `azwifi.py` | the AZ's Wi-Fi (`wpa_supplicant`, `iw`): the player's Wi-Fi commands, carried out on the Pi's Wi-Fi (`--network`) |
 | `xdjaz-prep.sh`, `xdjaz.service` | the audio loopback on the controller's clock, start and stop |
 
 The AZ's microcontroller protocol (UCOM frames) is described in
@@ -245,6 +258,7 @@ checks the player's md5.
 | `/opt/xdjaz/mixer/azmix.log` | audio |
 | `/opt/xdjaz/xdjaz-usb.log` | USB sticks |
 | `/opt/xdjaz/xorg.log` | the screen |
+| `journalctl -u azwifi` | Wi-Fi (`--network`) |
 
 - **No player, `no controller` repeating in the journal**: the controller is
   not plugged in or not seen as a sound card (`cat /proc/asound/cards` should
@@ -266,7 +280,8 @@ checks the player's md5.
   (md5 `3518275e8b4d5d63636d8d7b4468d7ba`); the script refuses any other.
   (If you have the 2.00 image or the LUKS key that unpacks Pioneer's `.upd`
   files — you know where to find me.)
-- The player runs without a network: no streaming, Pro DJ Link or updates.
+- Without `--network` the player has no network. With it, the Wi-Fi screen
+  is what has been tried; streaming, Pro DJ Link and updates have not.
 - No Bluetooth.
 - No limiter: hot tracks clip with TRIM above centre.
 - The "1/3 1/2 2/3" hint on the BEAT FX panel is drawn by the player itself;

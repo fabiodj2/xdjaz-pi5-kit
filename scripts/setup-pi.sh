@@ -4,6 +4,7 @@
 #
 #   sudo ./scripts/setup-pi.sh --iso ~/XDJAZv130.iso [--key ~/onelibrary.key]
 #                              [--azmods ~/mods-v1.2.8.tar.gz] [--no-autostart]
+#                              [--network]
 #
 #   --iso FILE       the decrypted 1.30 update ISO (or --rootfs DIR: one
 #                    already extracted with extract-rootfs.sh)
@@ -13,6 +14,10 @@
 #                    stems, ...
 #   --no-autostart   do not start the player at boot (by default the Pi boots
 #                    straight into it, and the tty1 login is turned off)
+#   --network        the player gets the Pi's network, and its own Wi-Fi
+#                    screen joins networks on the Pi's Wi-Fi (azwifi.service;
+#                    NetworkManager or wpa_supplicant). --no-network undoes
+#                    it; without either the last choice stays.
 #   --user NAME      the user the player runs as (default: who ran sudo)
 #
 # Safe to run again: it rebuilds and reinstalls everything but the rootfs and
@@ -21,7 +26,7 @@ set -eu
 KIT=$(cd "$(dirname "$0")/.." && pwd)
 SRC=$KIT/src
 OPT=/opt/xdjaz
-ISO="" ROOTFS_IN="" KEY="" AZMODS="" AUTOSTART=1 RUNAS=${SUDO_USER:-}
+ISO="" ROOTFS_IN="" KEY="" AZMODS="" AUTOSTART=1 NETWORK="" RUNAS=${SUDO_USER:-}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -31,6 +36,8 @@ while [ $# -gt 0 ]; do
     --azmods) AZMODS=$2; shift ;;
     --autostart) AUTOSTART=1 ;;
     --no-autostart) AUTOSTART=0 ;;
+    --network) NETWORK=1 ;;
+    --no-network) NETWORK=0 ;;
     --user) RUNAS=$2; shift ;;
     *) echo "unknown option $1 (see the top of $0)" >&2; exit 2 ;;
     esac
@@ -63,7 +70,7 @@ fi
 # The player runs as root inside its own user namespace, i.e. as $RUNAS
 # outside: it writes its settings and caches into the rootfs.
 chown -R "$RUNAS:" "$OPT/rootfs"
-install -d -o "$RUNAS" "$OPT/state"
+install -d -o "$RUNAS" "$OPT/state" "$OPT/state/tmp"
 
 step "build (on the Pi: azshim must link against this glibc, see azshim.c)"
 B=$(mktemp -d)
@@ -81,7 +88,7 @@ gcc -O2 -Wall -o "$B/aztouch" "$SRC/touch/aztouch.c"
 gcc -O2 -Wall -o "$B/azvsync" "$SRC/vsync/azvsync.c" $(pkg-config --cflags --libs libdrm)
 
 step "install into $OPT"
-install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools" "$OPT/strip"
+install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools" "$OPT/strip" "$OPT/wifi"
 install -m 755 "$B/azshim.so" "$OPT/shims/azshim.so"
 install -m 755 "$B/azbridge" "$OPT/bridge/azbridge"
 install -m 755 "$B/azmix" "$OPT/mixer/azmix"
@@ -95,6 +102,8 @@ install -m 755 "$SRC/deploy/xdjaz-usb.sh" "$OPT/xdjaz-usb.sh"
 install -m 755 "$SRC/tools/midi.sh" "$SRC/tools/shot.py" "$OPT/tools/"
 # the on-screen buttons right of the player (STRIP, PANEL=juce)
 install -m 755 "$SRC/strip/azstrip.py" "$OPT/strip/azstrip.py"
+# the Wi-Fi broker: the player's Wi-Fi screen -> the Pi's Wi-Fi (--network)
+install -m 755 "$SRC/wifi/azwifi.py" "$OPT/wifi/azwifi.py"
 # the logs the pieces write next to themselves
 chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync" "$OPT/strip"
 
@@ -144,9 +153,28 @@ elif [ "$AUTOSTART" = 0 ]; then
     systemctl enable getty@tty1.service 2>/dev/null || true
 fi
 
+if [ -n "$NETWORK" ]; then
+    step "network"
+    D=/etc/systemd/system/xdjaz.service.d
+    if [ "$NETWORK" = 1 ]; then
+        install -m 644 "$SRC/deploy/azwifi.service" /etc/systemd/system/azwifi.service
+        install -d "$D"
+        printf '[Service]\nEnvironment=AZ_NET=1\n' > "$D/network.conf"
+        systemctl daemon-reload
+        systemctl enable --now azwifi.service
+        echo "the player gets the network; its Wi-Fi screen drives this Pi's Wi-Fi"
+    else
+        systemctl disable --now azwifi.service 2>/dev/null || true
+        rm -f "$D/network.conf" /etc/systemd/system/azwifi.service
+        systemctl daemon-reload
+        echo "the player runs without a network"
+    fi
+fi
+
 step "done"
 cat <<EOF
 Start:   sudo systemctl start xdjaz      (or reboot; it waits for the controller)
 Stop:    sudo systemctl stop xdjaz
 Logs:    journalctl -u xdjaz; $OPT/ep147.log, $OPT/bridge/azbridge.log, $OPT/mixer/azmix.log
+         journalctl -u azwifi (Wi-Fi, with --network)
 EOF
