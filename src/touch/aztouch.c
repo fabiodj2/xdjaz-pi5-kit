@@ -19,11 +19,22 @@
 // 2026-11-06, taps on the gear spread over x 959..1018 for an icon at
 // 951..981, the player's window ending at 992.
 //
-//   aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [/dev/input/eventN]
+// Button zones: a touch that comes down inside one never reaches X. While it
+// lasts, the zone's bit in a UCOM frame is set through azbridge's FIFO
+// ("b DEV BYTE BIT 1", then "... 0"): the on-screen buttons of
+// strip/azstrip.py, which draws them and lights the one held (told on its
+// FIFO as "N 1" / "N 0", N the zone's number). A zone with dev -1 sends "h"
+// instead (back to the waveform screen).
+//
+//   aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [-f fifo] [-p fifo]
+//           [-b x0,y0,x1,y1,dev,byte,bit]... [/dev/input/eventN]
 //     -S  the screen in pixels (zones are in screen pixels), default 1024x600
 //     -r  the touchscreen reports 180 degrees off (xorg's CalibrationMatrix
 //         turns it back), so zones are turned too
 //     -z  a zone, up to 8
+//     -f  azbridge's FIFO (its -i), for the buttons
+//     -p  the button overlay's FIFO (optional)
+//     -b  a button zone, up to 12
 //   default device: the first direct-touch one (a fixed path is not found
 //   again after a drop)
 //
@@ -51,6 +62,38 @@ static struct zone { int x0, y0, x1, y1, tx, ty; } zones[8];
 static int nzones, scr_w = 1024, scr_h = 600, turned;
 static struct input_absinfo ax, ay;	// the device's X and Y axes
 static int snapping, snap_x, snap_y;	// device units
+
+static struct button { int x0, y0, x1, y1, dev, byte, bit; } buttons[12];
+static int nbuttons, held_button = -1;	// the button the finger is on
+static const char *bridge_fifo, *strip_fifo;
+
+// One line to a FIFO, if someone reads it (a missing reader is no error).
+static void fifo_line(const char *path, const char *line)
+{
+	if (!path)
+		return;
+	int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	if (write(fd, line, strlen(line)) < 0)
+		perror("aztouch: fifo");
+	close(fd);
+}
+
+static void press(int b, int down)
+{
+	char line[64];
+	if (buttons[b].dev < 0) {	// HOME: azbridge's "h", on the press
+		if (down)
+			fifo_line(bridge_fifo, "h\n");
+	} else {
+		snprintf(line, sizeof(line), "b %x %x %x %d\n", buttons[b].dev, buttons[b].byte,
+			 buttons[b].bit, down);
+		fifo_line(bridge_fifo, line);
+	}
+	snprintf(line, sizeof(line), "%d %d\n", b, down);
+	fifo_line(strip_fifo, line);
+}
 
 // device <-> screen pixels
 static int to_screen(int v, const struct input_absinfo *a, int size)
@@ -167,7 +210,25 @@ static void emit(int out, struct frame *f)
 	for (int i = 0; i < f->n; i++)
 		if (f->ev[i].type == EV_KEY && f->ev[i].code == BTN_TOUCH)
 			*(f->ev[i].value ? &down : &up) = 1;
-	if (down && nzones && ax.maximum > ax.minimum && ay.maximum > ay.minimum) {
+	int axes = ax.maximum > ax.minimum && ay.maximum > ay.minimum;
+	if (down && nbuttons && axes && held_button < 0) {
+		int sx = to_screen(f->x, &ax, scr_w), sy = to_screen(f->y, &ay, scr_h);
+		for (int b = 0; b < nbuttons; b++)
+			if (sx >= buttons[b].x0 && sx <= buttons[b].x1 &&
+			    sy >= buttons[b].y0 && sy <= buttons[b].y1) {
+				held_button = b;
+				press(b, 1);
+				break;
+			}
+	}
+	if (held_button >= 0) {		// the whole touch is the button's
+		if (up) {
+			press(held_button, 0);
+			held_button = -1;
+		}
+		return;
+	}
+	if (down && nzones && axes) {
 		int sx = to_screen(f->x, &ax, scr_w), sy = to_screen(f->y, &ay, scr_h);
 		snapping = 0;
 		for (int z = 0; z < nzones && !snapping; z++)
@@ -240,8 +301,18 @@ int main(int argc, char **argv)
 {
 	char name[200] = "touchscreen";
 	int opt;
-	while ((opt = getopt(argc, argv, "S:rz:")) != -1) {
+	while ((opt = getopt(argc, argv, "S:rz:f:p:b:")) != -1) {
 		struct zone *z = &zones[nzones];
+		struct button *b = &buttons[nbuttons];
+		if (opt == 'f' || opt == 'p') {
+			*(opt == 'f' ? &bridge_fifo : &strip_fifo) = optarg;
+			continue;
+		}
+		if (opt == 'b' && nbuttons < 12 && sscanf(optarg, "%d,%d,%d,%d,%d,%d,%d", &b->x0, &b->y0,
+							  &b->x1, &b->y1, &b->dev, &b->byte, &b->bit) == 7) {
+			nbuttons++;
+			continue;
+		}
 		if (opt == 'S' && sscanf(optarg, "%dx%d", &scr_w, &scr_h) == 2)
 			continue;
 		if (opt == 'r') {
@@ -253,7 +324,8 @@ int main(int argc, char **argv)
 			nzones++;
 			continue;
 		}
-		fprintf(stderr, "usage: aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [device]\n");
+		fprintf(stderr, "usage: aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [-f fifo] [-p fifo]\n"
+				"               [-b x0,y0,x1,y1,dev,byte,bit]... [device]\n");
 		return 2;
 	}
 	const char *path = optind < argc ? argv[optind] : NULL;
@@ -271,8 +343,8 @@ int main(int argc, char **argv)
 	signal(SIGTERM, on_signal);
 	ioctl(in, EVIOCGABS(ABS_X), &ax);
 	ioctl(in, EVIOCGABS(ABS_Y), &ay);
-	fprintf(stderr, "aztouch: filtering \"%s\" (%d..%d x %d..%d), %d snap zones\n", name,
-		ax.minimum, ax.maximum, ay.minimum, ay.maximum, nzones);
+	fprintf(stderr, "aztouch: filtering \"%s\" (%d..%d x %d..%d), %d snap zones, %d buttons\n", name,
+		ax.minimum, ax.maximum, ay.minimum, ay.maximum, nzones, nbuttons);
 
 	struct frame held, f;
 	int has_held = 0, x = -1, y = -1;	// position last passed on

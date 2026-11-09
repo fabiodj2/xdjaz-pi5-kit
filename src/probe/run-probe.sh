@@ -13,6 +13,9 @@ STATE=/opt/xdjaz/state          # writable dirs the player expects
 DISP=:7
 [ "${XORG:-0}" = 1 ] && DISP=:0
 T=${1:-40}
+# STRIP=1 (default; the panel, PANEL=juce): the AZ's browse buttons on screen,
+# right of the player's window (strip/azstrip.py)
+strip_on() { [ "${XORG:-0}" = 1 ] && [ "${PANEL:-juce}" = juce ] && [ "${STRIP:-1}" = 1 ] && [ -f /opt/xdjaz/strip/azstrip.py ]; }
 # Files the bridge, the mixer and azvsync share (mixer frame, meters, vsync
 # time). Not /dev/shm: logind (RemoveIPC) empties the user's files there when
 # their last session closes, and a mixer restarted later (wake-up) would find
@@ -77,7 +80,14 @@ if [ "${XORG:-0}" = 1 ]; then
   # it also widens the top bar's small icons at the panel's edge: the REC
   # timer (opens MIXER SETTINGS) and the gear / info (aztouch.c).
   TOUCHZONES=""
-  [ "${PANEL:-juce}" = juce ] && TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
+  # STRIP=1 (PANEL=juce): the window goes to x 0 instead and the free strip
+  # on the right gets the AZ's browse buttons (strip/azstrip.py; aztouch
+  # presses them through azbridge's FIFO), the icons 31 px to the left.
+  if strip_on; then
+    TOUCHZONES="-z 814,0,904,60,854,24 -z 909,0,960,60,935,24 $(python3 /opt/xdjaz/strip/azstrip.py --aztouch-args)"
+  elif [ "${PANEL:-juce}" = juce ]; then
+    TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
+  fi
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
     sudo setsid /opt/xdjaz/touch/aztouch -S 1024x600 -r $TOUCHZONES \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
@@ -142,8 +152,13 @@ start_mix() {
 }
 : > /opt/xdjaz/mixer/azmix.log
 start_mix
+# the on-screen buttons (STRIP) press through its FIFO
+BRIDGE_FIFO=""
+strip_on && case " ${AZBRIDGE_OPTS:-} " in *" -i "*) ;; *) BRIDGE_FIFO="-i $STATE/azbridge.in" ;; esac
+# ... and tells them the open view (its LEDs), to light its button
+strip_on && BRIDGE_FIFO="$BRIDGE_FIFO -L $STATE/azstrip.in"
 [ -x /opt/xdjaz/bridge/azbridge ] && ! pgrep -x azbridge >/dev/null &&
-  setsid /opt/xdjaz/bridge/azbridge -v ${AZBRIDGE_OPTS:-} -s "$STATE/tmp/azbridge.sock" \
+  setsid /opt/xdjaz/bridge/azbridge -v ${AZBRIDGE_OPTS:-} $BRIDGE_FIFO -s "$STATE/tmp/azbridge.sock" \
     > /opt/xdjaz/bridge/azbridge.log 2>&1 < /dev/null &
 # The panel's vsync times for the player's repaint timing (it reads the
 # deck's /sys/module/rockchipdrm/parameters/vsync_time; see vsync/azvsync.c).
@@ -235,7 +250,14 @@ place_window() {
       DISPLAY=$DISP xrandr | grep -q "^ *1024x600_$REFRESH .*\*" ||
         setmode 1024x600 600 625 50.25
       WW=$(DISPLAY=$DISP xdotool getwindowgeometry "$W" | awk '/Geometry/{split($2, g, "x"); print g[1]}')
-      DISPLAY=$DISP xdotool windowmove "$W" $(( (1024 - ${WW:-1024}) / 2 )) 0 ;;
+      if strip_on; then
+        DISPLAY=$DISP xdotool windowmove "$W" 0 0
+        pgrep -f "strip/azstrip[.]py" >/dev/null ||
+          DISPLAY=$DISP setsid python3 /opt/xdjaz/strip/azstrip.py -x "${WW:-961}" \
+            > /opt/xdjaz/strip/azstrip.log 2>&1 < /dev/null &
+      else
+        DISPLAY=$DISP xdotool windowmove "$W" $(( (1024 - ${WW:-1024}) / 2 )) 0
+      fi ;;
     fit)
       setmode 1024x640 640 665 52.946
       DISPLAY=$DISP xdotool windowmove "$W" 0 0 ;;
@@ -287,6 +309,7 @@ while [ "$T" = 0 ] || [ $i -lt "$T" ]; do
     echo "controller $CTL_CARD gone: the player sleeps"
     kill -INT $BPID 2>/dev/null; sleep 3; kill -KILL $BPID 2>/dev/null; wait $BPID 2>/dev/null
     sudo pkill -x azmix
+    pkill -f "strip/azstrip[.]py"	# black screen while asleep; place_window brings it back
     while asleep; do sleep 1; done
     wake; WAKES=0
     continue
@@ -308,7 +331,7 @@ done
 if kill -0 $BPID 2>/dev/null; then echo "still running after ${T}s"; kill -INT $BPID; sleep 3; kill -KILL $BPID 2>/dev/null; fi
 wait $BPID; RC=$?; echo "exit=$RC"
 if [ "${XORG:-0}" = 1 ]; then
-  [ "${KEEPX:-0}" = 1 ] || { pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
+  [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
 else
   pkill -f "Xvfb $DISP"
 fi

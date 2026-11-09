@@ -48,7 +48,7 @@ apt-get install -y -q --no-install-recommends \
     bubblewrap xserver-xorg-core xserver-xorg-input-libinput x11-xserver-utils \
     x11-utils x11-apps xdotool picom xvfb \
     gcc libc6-dev pkg-config libasound2-dev libdrm-dev \
-    libarchive-tools cpio python3 python3-pil
+    libarchive-tools cpio python3 python3-pil python3-tk
 
 step "rootfs -> $OPT/rootfs"
 install -d -o "$RUNAS" "$OPT"
@@ -81,7 +81,7 @@ gcc -O2 -Wall -o "$B/aztouch" "$SRC/touch/aztouch.c"
 gcc -O2 -Wall -o "$B/azvsync" "$SRC/vsync/azvsync.c" $(pkg-config --cflags --libs libdrm)
 
 step "install into $OPT"
-install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools"
+install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools" "$OPT/strip"
 install -m 755 "$B/azshim.so" "$OPT/shims/azshim.so"
 install -m 755 "$B/azbridge" "$OPT/bridge/azbridge"
 install -m 755 "$B/azmix" "$OPT/mixer/azmix"
@@ -93,8 +93,10 @@ install -m 755 "$SRC/probe/dconf" "$OPT/dconf"
 install -m 755 "$SRC/deploy/xdjaz-prep.sh" "$OPT/xdjaz-prep.sh"
 install -m 755 "$SRC/deploy/xdjaz-usb.sh" "$OPT/xdjaz-usb.sh"
 install -m 755 "$SRC/tools/midi.sh" "$SRC/tools/shot.py" "$OPT/tools/"
+# the on-screen buttons right of the player (STRIP, PANEL=juce)
+install -m 755 "$SRC/strip/azstrip.py" "$OPT/strip/azstrip.py"
 # the logs the pieces write next to themselves
-chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync"
+chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync" "$OPT/strip"
 
 if [ -n "$KEY" ]; then
     step "OneLibrary key"

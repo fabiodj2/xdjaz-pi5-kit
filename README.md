@@ -108,6 +108,12 @@ stick: it shows in SOURCE as USB1.
   player sleeps with it: black screen. Wake the controller and the player is
   back in ~10 s with the sticks in SOURCE; loaded tracks are unloaded, as
   after an AZ's standby.
+- **Buttons on screen.** With `PANEL=juce` the player sits at the left edge
+  and the free strip on the right gets the buttons the AZ has above its
+  screen: HOME (back to the waveforms), SOURCE, BROWSE, TAG LIST, PLAYLIST,
+  SEARCH, SHORTCUT, MENU (hold: UTILITY), BACK, with the player's own icons.
+  The open view's button is lit, however it was opened. `STRIP=0` turns them
+  off (see [Settings](#settings)).
 
 ### Mapping that is not obvious
 
@@ -120,6 +126,11 @@ stick: it shows in SOURCE as USB1.
 | 4 BEAT / EXIT | a 4-beat loop, or out of the loop if one is playing |
 | SMART FADER (FLX4), DISCOVER (GRV6) | SOURCE |
 | VIEW (GRV6) | BROWSE |
+| PREVIEW (GRV6) | SEARCH: the search bar with the on-screen keyboard |
+| SHIFT + VIEW (GRV6) | TAG TRACK |
+| SHIFT + BACK (GRV6) | PLAYLIST (the playlist palette, BANK 1..4) |
+| SHIFT + DISCOVER (GRV6) | TRACK FILTER (the AZ has no Related Tracks) |
+| SHIFT + PREVIEW (GRV6) | back to the waveform screen |
 | Browse tilt (GRV6) | up/down: a row (with SHIFT: a page); left: BACK; right: select |
 | SHIFT + SLIP (VINYL) | JOG MODE |
 | SHIFT + FX CH lever (FLX4) | Beat FX on the mic alone; the lever without SHIFT goes back to the channel |
@@ -159,6 +170,7 @@ then `sudo systemctl daemon-reload && sudo systemctl restart xdjaz`.
 | `COMP` | compositor: `0` none, `glx`, `xrender`; with AZ-MODS the default is `glx` |
 | `AZMODS` | `0`: the player without the mods |
 | `AZ_CARD` | the controller's sound card name, if detection picks the wrong one |
+| `STRIP` | `0`: no buttons on the right, the player in the middle between bars. Only with `PANEL=juce`; the other modes have none anyway |
 | `AZ_SLEEP` | `0`: no sleep with the controller (the player then exits when the controller goes) |
 
 ## Another screen
@@ -177,7 +189,9 @@ are set for the 1024×600 panel:
 In `src/probe/run-probe.sh` the touch filter `aztouch` is started for a
 1024×600 panel turned 180° (`-S 1024x600 -r`) and, with `PANEL=juce`, makes
 the small icons at the top bar's edge (REC timer, gear) easier to hit
-(`-z` zones). Change or drop those for another screen.
+(`-z` zones). Change or drop those for another screen. With the buttons
+(`STRIP`) those zones move with the window, and the buttons' own zones (`-b`)
+come from `src/strip/azstrip.py`; for another screen set `STRIP=0`.
 
 The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75).
 
@@ -197,7 +211,8 @@ The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75)
 | `azshim.so` | the AZ's kernel: connects the player to the bridge instead of the microcontrollers, USB stick events, the OneLibrary key, small drawing fixes |
 | `azbridge` | the AZ panel's microcontrollers: button and knob frames from the controller's MIDI, controller LEDs from the player's frames. It also runs the Beat FX, as the AZ's mixer processor does |
 | `azmix` | the AZ's hardware mixer: EQ, COLOR FX, faders, Beat FX, CUE, out to the controller's sound card in real time |
-| `aztouch` | a filter for the panel's touch glitches |
+| `aztouch` | a filter for the panel's touch glitches; it also takes the touches on the on-screen buttons |
+| `azstrip.py` | the buttons the AZ has above its screen, drawn right of the player (`STRIP`) |
 | `azvsync` | the screen's frame times, which the player paints by |
 | `xdjaz-usb.sh` | USB stick hot-plug |
 | `xdjaz-prep.sh`, `xdjaz.service` | the audio loopback on the controller's clock, start and stop |

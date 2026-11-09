@@ -24,6 +24,7 @@
 // and DECK 4 (see "Deck layers"), and mixer channels 3 and 4.
 //
 //   azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
+//            [-L fifo]
 //
 // -k also sends the GRV6 its "host here" message (see grv6_keepalive).
 //
@@ -34,7 +35,14 @@
 // and handles it as if it came from the controller: drives the player from a
 // script while testing. A line starting with "o" goes to the controller
 // instead (e.g. "o F0 00 40 05 ... F7"); "s DEV BYTE VALUE" (hex) sets a
-// byte of an RX frame (DEV 0 ErP, 1 deck R, 2 mixer, 3 deck L).
+// byte of an RX frame (DEV 0 ErP, 1 deck R, 2 mixer, 3 deck L); "b DEV BYTE
+// BIT VALUE" (hex) sets or clears one bit of it (the on-screen buttons of
+// strip/azstrip.py press the AZ's browse buttons this way, through aztouch);
+// "h" goes back to the waveform screen (presses the open view's button, see
+// "views").
+//
+// -L FIFO: the on-screen buttons' (strip/azstrip.py), told the open views
+// ("L mask", bit i = views[i]) so the open one's button is lit.
 //
 // SHIFT + SMART FADER (GRV6: SHIFT + BACK) held RETURN_HOLD_S asks the Pi's
 // boot menu to come back (writes RETURN_REQUEST; rblaunch-return.path does the
@@ -266,6 +274,7 @@ enum kind {
 	STEP,		// note -> counter at (dev, a) += c (browse tilt)
 	LAYER,		// GRV6 note 60: deck a's layer is live (see "Deck layers")
 	BRAKE,		// held: azmix brakes mixer channel a (MC_BRAKE)
+	HOME,		// back to the waveform screen (go_home)
 };
 
 enum target { T_BIT, T_DECKTEMPO, T_MC10 };
@@ -475,6 +484,15 @@ static const struct ctl grv6[] = {
 	{ 0x96, 0x65, BUTTON, DEV_MC, 33, 7 },		// BACK
 	{ 0x96, 0x7A, BUTTON, DEV_MC, 32, 6 },		// VIEW: BROWSE
 	{ 0x96, 0x35, BUTTON, DEV_MC, 32, 7 },		// DISCOVER: SOURCE
+	{ 0x96, 0x36, BUTTON, DEV_MC, 32, 3 },		// PREVIEW: SEARCH (bar + keyboard)
+	// SHIFT + the browse-area buttons, measured 2026-11-09. The AZ has no
+	// Related Tracks (SHIFT + DISCOVER): TRACK FILTER (its Related Key) instead;
+	// SHIFT + PREVIEW (">>", rekordbox: preview +30 s) has no AZ counterpart
+	// (the AZ seeks a preview by touching its waveform): HOME.
+	{ 0x96, 0x67, BUTTON, DEV_MC, 33, 6 },		// SHIFT + VIEW: TAG TRACK
+	{ 0x96, 0x66, BUTTON, DEV_MC, 32, 4 },		// SHIFT + BACK: PLAYLIST (palette)
+	{ 0x96, 0x68, BUTTON, DEV_MC, 33, 5 },		// SHIFT + DISCOVER: TRACK FILTER
+	{ 0x96, 0x37, HOME },				// SHIFT + PREVIEW: HOME
 	{ 0x96, 0x46, BUTTON, DEV_MC, 33, 3 },		// LOAD left side
 	{ 0x96, 0x47, BUTTON, DEV_MC, 33, 2 },		// LOAD right side
 	{ 0x96, 0x58, BUTTON, DEV_MC, 33, 5 },		// SHIFT + LOAD 1: TRACK FILTER
@@ -948,10 +966,63 @@ static double ch_bpm[4];		// effective BPM per mixer channel, 0 unknown
 static double ch_ratio[4];		// tempo ratio per channel (deck)
 static int ch_state[4];			// 3 playing, 5 paused, 6 cued; 0 unknown
 
+// The browse-area LEDs say which view is open (2026-11-09, each button
+// pressed through the FIFO with the panel watched): MC TX 26..27, 2 bits per
+// LED, 2 lit, 1 dark; all dark on the waveform screen. The views and their
+// buttons (RX). MENU is lit while UTILITY is open (a long press opens it, a
+// short one closes it); a second press of a lit view's button goes back to
+// the waveform screen. TX 27 bits 0-1 stay at 2 (not one of these).
+static const struct { uint8_t tx, shift, byte, bit; } views[] = {
+	{ 26, 6, 32, 7 },	// SOURCE
+	{ 26, 4, 32, 6 },	// BROWSE
+	{ 26, 2, 32, 5 },	// TAG LIST
+	{ 26, 0, 32, 4 },	// PLAYLIST
+	{ 27, 6, 32, 3 },	// SEARCH
+	{ 27, 4, 32, 2 },	// MENU (UTILITY)
+};
+#define NVIEWS	(int)(sizeof(views) / sizeof(views[0]))
+static int views_lit = -1;		// bit i: views[i] open; -1 unknown
+static const char *strip_fifo;		// -L: the on-screen buttons (strip/azstrip.py)
+static double strip_sent;
+
+// Tells the on-screen buttons the open views ("L mask"), on a change and
+// once a second (the overlay may have started later).
+static void strip_tell(void)
+{
+	if (!strip_fifo || views_lit < 0)
+		return;
+	int fd = open(strip_fifo, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0)
+		return;
+	char line[16];
+	int k = snprintf(line, sizeof(line), "L %d\n", views_lit);
+	if (write(fd, line, k) < 0) { /* nobody reading: fine */ }
+	close(fd);
+	strip_sent = now();
+}
+
+// Back to the waveform screen: press the open view's button.
+static void go_home(void)
+{
+	for (int i = 0; i < NVIEWS; i++)
+		if (views_lit > 0 && views_lit & 1 << i) {
+			pulse(DEV_MC, views[i].byte, views[i].bit);
+			return;
+		}
+}
+
 static void mc_tx(const uint8_t *buf, int n)
 {
 	if (n < 92)
 		return;
+	int lit = 0;
+	for (int i = 0; i < NVIEWS; i++)
+		if ((buf[views[i].tx] >> views[i].shift & 3) == 2)
+			lit |= 1 << i;
+	if (lit != views_lit || now() - strip_sent > 1) {
+		views_lit = lit;
+		strip_tell();
+	}
 	if (frame[DEV_MC][MC_MIC_REC] != buf[10] || frame[DEV_MC][MC_TALKOVER] != buf[11]) {
 		frame[DEV_MC][MC_MIC_REC] = buf[10];
 		frame[DEV_MC][MC_TALKOVER] = buf[11];
@@ -1144,6 +1215,10 @@ static void apply(const struct ctl *c, int value, int on)
 		if (on)
 			counter_add(c->dev, c->a, c->c);
 		break;
+	case HOME:
+		if (on)
+			go_home();
+		break;
 	case FX_BEAT:
 		if (on && bfx_beat + c->c >= 0 && bfx_beat + c->c < NBEATS)
 			bfx_beat += c->c;
@@ -1256,7 +1331,8 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 	}
 	if (st == 0x96 && d1 == cur->return_note) {	// SHIFT + SMART FADER / BACK
 		return_since = on ? now() : 0;
-		return;
+		if (cur->map == flx4)		// the GRV6's is PLAYLIST too (table)
+			return;
 	}
 	if (on) {			// LEDs the bridge keeps itself
 		if (type == 0x90 && ch < cur->nch && d1 == 0x54)
@@ -1384,18 +1460,19 @@ int main(int argc, char **argv)
 	const char *sock_path = "/opt/xdjaz/state/tmp/azbridge.sock";
 	const char *midi_dev = NULL, *inject_path = NULL, *ctlr_name = NULL;
 	int opt, keepalive_opt = 0;
-	while ((opt = getopt(argc, argv, "c:ks:m:vt:i:")) != -1) {
+	while ((opt = getopt(argc, argv, "c:ks:m:vt:i:L:")) != -1) {
 		if (opt == 'c') ctlr_name = optarg;
 		else if (opt == 'k') keepalive_opt = 1;
 		else if (opt == 's') sock_path = optarg;
 		else if (opt == 'm') midi_dev = optarg;
 		else if (opt == 'v') verbose = 1;
 		else if (opt == 'i') inject_path = optarg;
+		else if (opt == 'L') strip_fifo = optarg;
 		else if (opt == 't') {
 			if (!(txlog = fopen(optarg, "w"))) { perror(optarg); return 1; }
 			setvbuf(txlog, NULL, _IOLBF, 0);
 		}
-		else { fprintf(stderr, "usage: azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo]\n"); return 2; }
+		else { fprintf(stderr, "usage: azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
 	}
 	// the controller: named, else the GRV6 if its card is there, else the FLX4
 	cur = NULL;
@@ -1555,6 +1632,20 @@ int main(int argc, char **argv)
 			if (text[0] == 's' && sscanf(text + 1, "%x %x %x", &sd, &sb, &sv) == 3 &&
 			    sd < NDEV && sb < devs[sd].crc_at) {
 				frame[sd][sb] = sv;
+				dirty[sd] = 1;
+				text[0] = 0;
+			}
+			if (text[0] == 'h') {
+				go_home();
+				text[0] = 0;
+			}
+			unsigned sbit;
+			if (text[0] == 'b' && sscanf(text + 1, "%x %x %x %x", &sd, &sb, &sbit, &sv) == 4 &&
+			    sd < NDEV && sb < devs[sd].crc_at && sbit < 8) {
+				if (sv)
+					frame[sd][sb] |= 1 << sbit;
+				else
+					frame[sd][sb] &= ~(1 << sbit);
 				dirty[sd] = 1;
 				text[0] = 0;
 			}

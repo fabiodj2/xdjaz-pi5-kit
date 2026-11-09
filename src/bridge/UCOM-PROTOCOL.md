@@ -330,6 +330,8 @@ TX frames are built every 4, 10 or 3 ms and sent with the ioctl in §1.3. Each h
     - 4..15 (`215a2f8`): mixer settings, 2- and 4-bit fields from the player's mixer settings object (curves, assignments; not mapped one by one).
     - 24: bit 1 = deck 1 SHIFT held, bit 0 = deck 2 SHIFT held.
     - 26..28: 2-bit LEDs of the browse/LOAD section (the player's mixer indicator set, 13 LEDs; `browseLed` and `menuLed` named by hash). After LOAD 1, 28 bits 6-7 blink; after LOAD 2, 28 bits 4-5.
+      - **Mapped 2026-11-09** (each button pressed, the screen watched): 2 = lit, 1 = dark. SOURCE 26 bits 6-7, BROWSE 26 bits 4-5, TAG LIST 26 bits 2-3, PLAYLIST 26 bits 0-1, SEARCH 27 bits 6-7, MENU 27 bits 4-5 (lit while UTILITY is open). All dark on the waveform screen, so they tell which view is open. 27 bits 0-1 stay at 2. SHORTCUT and TRACK FILTER have no LED in 20..35.
+      - The buttons (RX 32..33): a press opens the view, a second press of a lit one goes back to the waveform screen. MENU: a long press (~1.5 s) opens UTILITY, a short one closes it. SEARCH opens the browser's search bar with the soft keyboard.
     - 39 (=36+3): event flags per channel. Bits 0-3: a beat tick for channel 1..4, with the beat interval in ms (u32 LE) at 88 + 4*(ch-1) (e.g. `d6 01` = 470 ms at 128 BPM). Bits 4-7: a deck status record for channel 1..4 at 40 + 12*(ch-1): u32 BPM×100 (`00 32 00 00` = 128.00), u32 tempo ratio×10000 (`10 27` = 1.0000), u32 state (3 playing, 5 paused, 6 cued/loaded). Records are sent once (the next frame clears the flag).
     - Not in the TX at all: headphone CUE, BEAT FX on/select/beat, COLOR FX (latched in the AZ's mixer MCU).
 
