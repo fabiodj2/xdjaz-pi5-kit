@@ -62,8 +62,8 @@ BUTTONS = [
 # its "L mask" lights VIEWS[i]. SHORTCUT has none.
 VIEWS = ["SOURCE", "BROWSE", "TAG LIST", "PLAYLIST", "SEARCH", "MENU"]
 
-# the category column's colours (sampled from the player's screen)
-TILE = (0x3c, 0x3c, 0x3c)
+# colours sampled from the player's screen (the category column's blue)
+TILE = (0x32, 0x32, 0x32)	# as the BEAT FX panel's title bar
 LIT = (0x00, 0x7d, 0xe1)
 GAP = (0, 0, 0)
 INK = (0xe8, 0xe8, 0xe8)

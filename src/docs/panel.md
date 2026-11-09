@@ -29,7 +29,7 @@ Environment=PANEL=fit
 AZ стоят над экраном: HOME, SOURCE, BROWSE, TAG LIST, PLAYLIST, SEARCH,
 SHORTCUT, MENU, BACK. `STRIP=0` возвращает окно в центр, без кнопок.
 
-- **Вид.** Как колонка категорий браузера: плитки `#3c3c3c`, чёрные
+- **Вид.** Как колонка категорий браузера, но темнее: плитки `#323232` (как заголовок BEAT FX), чёрные
   разделители, синий `#007de1`. Иконки и шрифт берутся из прошивки
   (`/opt/xdjaz/rootfs`) при запуске. Рисует `strip/azstrip.py` (Tk + PIL);
   `azstrip.py --preview out.png` рисует полосу в файл без X.
