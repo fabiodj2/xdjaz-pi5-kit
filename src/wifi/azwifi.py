@@ -43,6 +43,7 @@ ENV = dict(os.environ, LC_ALL="C", LANG="C")
 
 lock = threading.Lock()
 nets = []            # last /tmp/wpa.conf: [{ssid, psk, priority, hidden}]
+listed = None        # ssids of the player's last saved list (None: none yet)
 manual = False       # a disconnect came first: the user picked a network
 events = False       # the player listens for wpa_event (wpa_cli -a)
 gen = 0              # bumped on every disconnect/reconnect; stale connects stop
@@ -210,25 +211,48 @@ class NM:
     def forget(self, ssid, ref):
         nmcli("con", "delete", ref, timeout=15)
 
+    def security(self, ssid):
+        """The SECURITY column NM's last scan has for ssid ("" if unseen)."""
+        rc, out = nmcli("-t", "-f", "SSID,SECURITY", "dev", "wifi", "list",
+                        "ifname", self.iface, "--rescan", "no", timeout=10)
+        for line in out.splitlines():
+            f = split_t(line)
+            if len(f) >= 2 and f[0] == ssid:
+                return f[1]
+        return ""
+
     def connect(self, n):
         name = PREFIX + n["ssid"]
         if n["ssid"] in self.ours():
             nmcli("con", "delete", name, timeout=15)
-        # NM finds the security itself; the player's authType guess (it tries
-        # WPA3, WPA2/3, WPA2, ... in turn on AUTO) does not matter here.
-        args = ["--wait", "25", "dev", "wifi", "connect", n["ssid"],
-                "ifname", self.iface, "name", name]
-        if n["psk"]:
-            args += ["password", n["psk"]]
-        if n["hidden"]:
-            args += ["hidden", "yes"]
-        rc, out = nmcli(*args, timeout=35)
-        if rc == 0:
-            nmcli("con", "modify", name, "connection.autoconnect", "yes",
-                  "connection.autoconnect-priority", str(n["priority"]),
-                  timeout=10)
-            return True
-        return False
+        # The security comes from the scan, not from the player's authType
+        # guess (on AUTO it tries WPA3, WPA2/3, WPA2, ... in turn). A WPA2/WPA3
+        # network is joined as WPA2-PSK: SAE fails on some Wi-Fi chips
+        # (brcmfmac of the Raspberry Pi among them), PSK works everywhere.
+        sec = self.security(n["ssid"])
+        if not n["psk"]:
+            km = []
+        elif "WPA2" in sec or "WPA1" in sec:
+            km = ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", n["psk"]]
+        elif "WPA3" in sec:
+            km = ["wifi-sec.key-mgmt", "sae", "wifi-sec.psk", n["psk"]]
+        elif "WEP" in sec:
+            km = ["wifi-sec.key-mgmt", "none", "wifi-sec.wep-key0", n["psk"],
+                  "wifi-sec.wep-key-type", "key"]
+        else:       # not in the scan (hidden): the most common kind
+            km = ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", n["psk"]]
+        rc, out = nmcli("con", "add", "type", "wifi", "ifname", self.iface,
+                        "con-name", name, "ssid", n["ssid"],
+                        "connection.autoconnect", "yes",
+                        "connection.autoconnect-priority", str(n["priority"]),
+                        "802-11-wireless.hidden", "yes" if n["hidden"] else "no",
+                        *km, timeout=15)
+        if rc:
+            log("profile not made for", n["ssid"])
+            return False
+        rc, out = nmcli("--wait", "25", "con", "up", name, "ifname", self.iface,
+                        timeout=35)
+        return rc == 0
 
     def drop(self, n):
         nmcli("con", "delete", PREFIX + n["ssid"], timeout=15)
@@ -349,11 +373,8 @@ class WPA:
                      ("ieee80211w", "2")]
         elif sec and not (sec["psk"] or sec["sae"] or sec["wpa1"]) and sec["priv"]:
             sets += [("key_mgmt", "NONE"), ("wep_key0", q(pw))]
-        else:
-            km = "WPA-PSK SAE" if sec and sec["sae"] else "WPA-PSK"
-            sets += [("key_mgmt", km), ("psk", q(pw))]
-            if sec and sec["sae"]:
-                sets += [("sae_password", q(pw)), ("ieee80211w", "1")]
+        else:       # WPA2/WPA3 joined as WPA2-PSK (see NM.connect)
+            sets += [("key_mgmt", "WPA-PSK"), ("psk", q(pw))]
         for k, v in sets:
             self.cli("set_network", nid, k, v)
         self.cli("enable_network", nid)
@@ -520,10 +541,15 @@ def reconnect(my_gen, was_manual, todo):
         B.host_networks()
 
 
-def forget_missing(todo):
+def forget_missing(todo, before):
+    """Forget the networks the player listed before and no longer lists (its
+    SAVED NETWORKS -> delete). The first list after the player starts only
+    sets `before`: that list can be empty (the player keeps it in an encrypted
+    settings file it may fail to read here) and must not wipe what the host
+    remembers."""
     keep = {n["ssid"] for n in todo}
     for ssid, ref in B.ours().items():
-        if ssid not in keep:
+        if ssid in before and ssid not in keep:
             log("forget", ssid)
             B.forget(ssid, ref)
 
@@ -532,7 +558,7 @@ def forget_missing(todo):
 
 def handle(cmd):
     """Returns (exit code, text for /tmp/shelloutput or None)."""
-    global nets, manual, events, gen
+    global nets, manual, events, gen, listed
     if cmd.startswith("wpa_cli -i mlan0 status"):
         return 0, None
     if cmd.startswith("ifconfig mlan0") and "HWaddr" in cmd:
@@ -563,10 +589,15 @@ def handle(cmd):
         with lock:
             nets = todo
             was_manual = manual
+            before = listed
+            if was_manual:      # the network just picked counts as listed
+                listed = (listed or set()) | {n["ssid"] for n in todo}
+            else:
+                listed = {n["ssid"] for n in todo}
         log("reconfigure:", [n["ssid"] for n in todo],
             "manual" if was_manual else "saved")
-        if not was_manual:
-            threading.Thread(target=forget_missing, args=(todo,),
+        if not was_manual and before is not None:
+            threading.Thread(target=forget_missing, args=(todo, before),
                              daemon=True).start()
         return 0, "OK"
     if cmd.startswith("wpa_cli -i mlan0 reconnect"):
@@ -582,6 +613,7 @@ def handle(cmd):
     if cmd.startswith("wpa_cli"):
         return 0, "OK"
     if cmd.startswith("wpa_supplicant"):
+        listed = None       # the player (re)starts its Wi-Fi
         B.radio_on()
         return 0, None
     if cmd.startswith("killall wpa_supplicant"):
