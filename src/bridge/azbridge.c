@@ -24,10 +24,12 @@
 // deck layers 3 and 4 drive the same two sides, switched to the AZ's DECK 3
 // and DECK 4 (see "Deck layers"), and mixer channels 3 and 4.
 //
-//   azbridge [-c flx4|ddj400|grv6] [-k] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
+//   azbridge [-c flx4|ddj400|grv6] [-k] [-n] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
 //            [-L fifo]
 //
 // -k also sends the GRV6 its "host here" message (see grv6_keepalive).
+// -n sends the controller no LEDs and no VU (inputs and the mixer still work): to
+// tell a controller that hangs on the MIDI it is sent from one that hangs on its own.
 //
 // The player's TX frames drive the controller's LEDs (see "LEDs" below); -t
 // logs every byte that changes in them, with the MIDI input interleaved.
@@ -1476,9 +1478,10 @@ int main(int argc, char **argv)
 {
 	const char *sock_path = "/opt/xdjaz/state/tmp/azbridge.sock";
 	const char *midi_dev = NULL, *inject_path = NULL, *ctlr_name = NULL;
-	int opt, keepalive_opt = 0;
-	while ((opt = getopt(argc, argv, "c:ks:m:vt:i:L:")) != -1) {
+	int opt, keepalive_opt = 0, no_out = 0;
+	while ((opt = getopt(argc, argv, "c:ks:m:vt:i:L:n")) != -1) {
 		if (opt == 'c') ctlr_name = optarg;
+		else if (opt == 'n') no_out = 1;
 		else if (opt == 'k') keepalive_opt = 1;
 		else if (opt == 's') sock_path = optarg;
 		else if (opt == 'm') midi_dev = optarg;
@@ -1489,7 +1492,7 @@ int main(int argc, char **argv)
 			if (!(txlog = fopen(optarg, "w"))) { perror(optarg); return 1; }
 			setvbuf(txlog, NULL, _IOLBF, 0);
 		}
-		else { fprintf(stderr, "usage: azbridge [-c flx4|ddj400|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
+		else { fprintf(stderr, "usage: azbridge [-c flx4|ddj400|grv6] [-k] [-n] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
 	}
 	// the controller: named, else the GRV6 if its card is there, else the DDJ-400, else the FLX4
 	cur = NULL;
@@ -1698,7 +1701,7 @@ int main(int argc, char **argv)
 			layers_tick();
 			bfx_report();
 		}
-		if (midi_out) {
+		if (midi_out && !no_out) {
 			int all = t >= next_led;
 			if (all)
 				next_led = t + (cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
