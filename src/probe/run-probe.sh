@@ -19,6 +19,12 @@ strip_on() { [ "${XORG:-0}" = 1 ] && [ "${PANEL:-juce}" = juce ] && [ "${STRIP:-
 # DROP=1 (default when STRIP is off): the same buttons as a drop-down bar from a
 # tab at the top of the screen, for any resolution (strip/azdrop.py)
 drop_on() { [ "${XORG:-0}" = 1 ] && [ "${DROP:-1}" = 1 ] && ! strip_on && [ -f /opt/xdjaz/strip/azdrop.py ]; }
+# keep the last run's logs: a player that dies and is restarted by the service
+# otherwise takes the reason with it
+cp -f /opt/xdjaz/ep147.log /opt/xdjaz/ep147.prev.log 2>/dev/null
+cp -f /opt/xdjaz/bridge/azbridge.log /opt/xdjaz/bridge/azbridge.prev.log 2>/dev/null
+cp -f /opt/xdjaz/mixer/azmix.log /opt/xdjaz/mixer/azmix.prev.log 2>/dev/null
+cp -f /opt/xdjaz/xorg.log /opt/xdjaz/xorg.prev.log 2>/dev/null
 # Files the bridge, the mixer and azvsync share (mixer frame, meters, vsync
 # time). Not /dev/shm: logind (RemoveIPC) empties the user's files there when
 # their last session closes, and a mixer restarted later (wake-up) would find
