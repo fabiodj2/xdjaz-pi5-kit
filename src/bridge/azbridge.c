@@ -529,6 +529,14 @@ static const uint8_t flx4_query[] = {
 // with the Beat FX on the master.
 static const uint8_t flx4_init[] = { 0x9F, 0x4A, 0x7F };
 
+// The DDJ-400 answers the same request (model bytes 0x02 0x06, as Mixxx's own
+// DDJ-400 script sends it on startup) with the position of every knob and
+// fader. Without it the mixer's channel faders start at 0 and the sound stays
+// silent until each one is moved.
+static const uint8_t ddj400_query[] = {
+	0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x02, 0x06, 0x00, 0x03, 0x01, 0xF7
+};
+
 static const uint8_t grv6_keepalive[] = {
 	0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x0C, 0x00, 0x50, 0x03, 0xF7
 };
@@ -557,10 +565,10 @@ static const struct ctlr ctlrs[] = {
 	{ "flx4", "DDJFLX4", flx4, NROWS(flx4), 2, 2, 720, 0x09,
 	  flx4_keepalive, flx4_query, sizeof(flx4_keepalive), 0,
 	  flx4_init, sizeof(flx4_init) },
-	// DDJ-400: the FLX4's MIDI layout (see FLX4_DECK), so the same table. No
-	// vendor SysEx (keepalive, query, init): not known for this unit. No mic.
+	// DDJ-400: the FLX4's MIDI layout (see FLX4_DECK), so the same table. Only
+	// the position query is known for this unit (no keepalive, no init). No mic.
 	// Jog 720 ticks a turn; 0x09 as for the FLX4. Untested on the unit.
-	{ "ddj400", "DDJ400", flx4, NROWS(flx4), 2, 2, 720, 0x09 },
+	{ "ddj400", "DDJ400", flx4, NROWS(flx4), 2, 2, 720, 0x09, NULL, ddj400_query },
 	// GRV6 jog: 6449 a turn (measured on the unit); SHIFT + BACK
 	{ "grv6", "DDJGRV6", grv6, NROWS(grv6), 4, 4, 6449, 0x66,
 	  grv6_keepalive, grv6_query, sizeof(grv6_keepalive), 1 },
