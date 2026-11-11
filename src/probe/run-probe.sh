@@ -227,6 +227,13 @@ VSYNC=/run/xdjaz/az-vsync_time
 [ "${XORG:-0}" = 1 ] && [ -x /opt/xdjaz/vsync/azvsync ] && ! pgrep -x azvsync >/dev/null &&
   setsid /opt/xdjaz/vsync/azvsync -f $VSYNC -o "${VSYNC_OFFSET_US:-11000}" -w "${VSYNC_DELAY_US:-0}" \
     > /opt/xdjaz/vsync/azvsync.log 2>&1 < /dev/null &
+
+# The player's UI thread (it paints everything, in software) gets cpu 3 alone
+# and nice -10, everything else cpu 0-2: no frames late from preemption (215
+# a minute at 1.5 GHz without it; pin/azpin.py). AZ_PIN=0: off; AZ_PIN_CPU.
+[ "${AZ_PIN:-1}" = 1 ] && [ -f /opt/xdjaz/pin/azpin.py ] && ! pgrep -f "pin/azpin[.]py" >/dev/null &&
+  sudo setsid python3 /opt/xdjaz/pin/azpin.py -c "${AZ_PIN_CPU:-3}" \
+    > /opt/xdjaz/pin/azpin.log 2>&1 < /dev/null &
 sleep 1
 
 # MASTER REC: the player records its audio input, the capture side of
@@ -401,6 +408,7 @@ while [ "$T" = 0 ] || [ $i -lt "$T" ]; do
 done
 if kill -0 $BPID 2>/dev/null; then echo "still running after ${T}s"; kill -INT $BPID; sleep 3; kill -KILL $BPID 2>/dev/null; fi
 wait $BPID; RC=$?; echo "exit=$RC"
+sudo pkill -f "pin/azpin[.]py"	# gives the threads all cores back
 if [ "${XORG:-0}" = 1 ]; then
   [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -f "strip/azdrop[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
 else

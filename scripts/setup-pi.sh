@@ -88,7 +88,7 @@ gcc -O2 -Wall -o "$B/aztouch" "$SRC/touch/aztouch.c"
 gcc -O2 -Wall -o "$B/azvsync" "$SRC/vsync/azvsync.c" $(pkg-config --cflags --libs libdrm)
 
 step "install into $OPT"
-install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools" "$OPT/strip" "$OPT/wifi"
+install -d "$OPT/shims" "$OPT/bridge" "$OPT/mixer" "$OPT/touch" "$OPT/vsync" "$OPT/tools" "$OPT/strip" "$OPT/wifi" "$OPT/pin"
 install -m 755 "$B/azshim.so" "$OPT/shims/azshim.so"
 install -m 755 "$B/azbridge" "$OPT/bridge/azbridge"
 install -m 755 "$B/azmix" "$OPT/mixer/azmix"
@@ -106,6 +106,8 @@ install -m 755 "$SRC/strip/azstrip.py" "$OPT/strip/azstrip.py"
 install -m 755 "$SRC/strip/azdrop.py" "$OPT/strip/azdrop.py"
 # the Wi-Fi broker: the player's Wi-Fi screen -> the Pi's Wi-Fi (--network)
 install -m 755 "$SRC/wifi/azwifi.py" "$OPT/wifi/azwifi.py"
+# the player's UI thread on a core of its own (AZ_PIN, run-probe.sh)
+install -m 755 "$SRC/pin/azpin.py" "$OPT/pin/azpin.py"
 # the logs the pieces write next to themselves
 chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync" "$OPT/strip"
 
