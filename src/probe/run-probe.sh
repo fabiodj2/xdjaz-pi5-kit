@@ -245,7 +245,7 @@ ${STRACE:-} bwrap \
   --ro-bind /opt/xdjaz/shims /usr/lib/azshim \
   --ro-bind /opt/xdjaz/dconf /usr/bin/dconf \
   --ro-bind "$ASOUND" /etc/asound.conf \
-  --setenv AZ_SCALE8 "$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)" \
+  --setenv AZ_SCALE8 "${AZ_SCALE8:-$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)}" \
   --setenv LD_PRELOAD $PRELOAD \
   $USBBIND $KEYBIND $MODBIND $NETBIND ${GUARD:-} \
   --setenv DISPLAY $DISP \
