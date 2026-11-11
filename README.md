@@ -228,6 +228,7 @@ The scale the player draws itself at is set in `src/probe/dconf` (6 of 8 = 0.75)
 | `azvsync` | the screen's frame times, which the player paints by |
 | `xdjaz-usb.sh` | USB stick hot-plug |
 | `azwifi.py` | the AZ's Wi-Fi (`wpa_supplicant`, `iw`): the player's Wi-Fi commands, carried out on the Pi's Wi-Fi (`--network`) |
+| `azpin.py` | the AZ's six cores: the player pins its threads as for those, so this moves its UI thread onto a core of its own (`AZ_PIN=0` off, `AZ_PIN_CPU`, default 3) |
 | `xdjaz-prep.sh`, `xdjaz.service` | the audio loopback on the controller's clock, start and stop |
 
 The AZ's microcontroller protocol (UCOM frames) is described in
