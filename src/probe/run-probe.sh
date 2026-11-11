@@ -15,7 +15,7 @@ DISP=:7
 T=${1:-40}
 # STRIP=1 (default; the panel, PANEL=juce): the AZ's browse buttons on screen,
 # right of the player's window (strip/azstrip.py)
-strip_on() { [ "${XORG:-0}" = 1 ] && [ "${PANEL:-juce}" = juce ] && [ "${STRIP:-1}" = 1 ] && [ -f /opt/xdjaz/strip/azstrip.py ]; }
+strip_on() { [ "${XORG:-0}" = 1 ] && [ "${PANEL:-juce}" = juce ] && [ "${STRIP:-0}" = 1 ] && [ -f /opt/xdjaz/strip/azstrip.py ]; }
 # DROP=1 (default when STRIP is off): the same buttons as a drop-down bar from a
 # tab at the top of the screen, for any resolution (strip/azdrop.py)
 drop_on() { [ "${XORG:-0}" = 1 ] && [ "${DROP:-1}" = 1 ] && ! strip_on && [ -f /opt/xdjaz/strip/azdrop.py ]; }
@@ -128,7 +128,7 @@ if [ "${XORG:-0}" = 1 ]; then
     TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
   fi
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
-    sudo setsid /opt/xdjaz/touch/aztouch -S 1024x600 -r $TOUCHZONES \
+    sudo setsid /opt/xdjaz/touch/aztouch -S 1920x1080 \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
   sudo Xorg $DISP vt${XVT:-1} -keeptty -novtswitch -nolisten tcp -nocursor -config /opt/xdjaz/xorg-az.conf \
     -logfile /opt/xdjaz/xorg.log >/dev/null 2>&1 &
@@ -325,6 +325,13 @@ place_window
 CTL_CARD=""
 for c in ${AZ_CARD:-DDJGRV6 DDJ400 DDJFLX4}; do [ -e "/proc/asound/$c" ] && { CTL_CARD=$c; break; }; done
 asleep() { [ "$T" = 0 ] && [ "${AZ_SLEEP:-1}" != 0 ] && [ -n "$CTL_CARD" ] && [ ! -e "/proc/asound/$CTL_CARD" ]; }
+# azmix drives the loopback's clock through the controller's PCM: when it is gone
+# the player's audio and the VU stop (kernel: snd_timer_start failed with -19).
+# It is started again whenever it dies, except while the controller sleeps.
+( while sleep 3; do
+    asleep && continue
+    pgrep -x azmix >/dev/null || start_mix
+  done ) &
 # Back from sleep: the controller's audio side can take a while after its USB
 # comes back, and the player needs the mixer running (its clock) before it
 # starts. A player that fails soon after waking is started again (WAKE_TRIES).
