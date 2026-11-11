@@ -164,6 +164,40 @@ sound card `DDJ400`). Differences from the FLX4:
   until moved.
 - Jog resolution and the BACK / return-to-menu button are taken from the FLX4, not measured.
 
+### Raspberry Pi 4 + DDJ-400: settings that were measured
+
+Measured on a Pi 4 (4 GB, 1.8 GHz), a 1920x1080 HDMI screen, a touch panel, two decks
+playing, AZ-MODS on (its 60 FPS Waveforms). The kit was written for a Pi 5, and the
+player paints in software on one thread, so on a Pi 4 the size of the player is what
+sets the frame rate (`/etc/systemd/system/xdjaz.service.d/local.conf`):
+
+```ini
+[Service]
+Environment=AZMODS=1
+Environment=COMP=0
+Environment=AZ_SCALE8=5
+Environment=AZ_PIN=0
+```
+
+| `AZ_SCALE8` | player | frame rate, two decks |
+|---|---|---|
+| 8 | 1280x800 | 30 |
+| 6 | 960x600 | 37 |
+| 5 | 800x500 | 60 |
+
+What did not help here (each tried alone): the CPU at 2.0 GHz, `AZ_PIN=1` (pinning the UI
+thread alone on a core: 28 against 33 fps with it off), the LEDs on or off, a compositor
+(`COMP=xrender`, the GPU gets busy), running the screen at 1280x720, and the blit guard
+(`azshim` held 2 of 275 puts a second, 2 ms in all). Without the mods the player paints at
+30 fps, so they stay on. On the screen, `AZ_SCREEN=1280x800` adds that mode if the screen
+lacks it.
+
+The DDJ-400 is bus powered. On the unit used here it hung (still enumerated, no USB error,
+the Pi at `throttled=0x0`) with the LEDs on and the master volume turned up, and only a
+power cycle (pulling the cable) brought it back; with `AZBRIDGE_OPTS=-n` (no LEDs, no VU)
+it was stable. Pulling its power from a self-powered hub, a short thick cable, or fewer
+other USB devices on the Pi are the things to try; a software USB reset does not help.
+
 ## AZ-MODS
 
 With `--azmods` the player runs with the mods: their `azmod.so` and
