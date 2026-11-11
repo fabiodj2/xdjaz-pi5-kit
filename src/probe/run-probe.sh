@@ -143,6 +143,12 @@ if [ "${XORG:-0}" = 1 ]; then
   # AZ_SCREEN=1280x720: run the screen at a smaller mode (the compositor and the X
   # server move fewer pixels: on a Pi 4 the GPU is the limit with two decks). Pair it
   # with AZ_SCALE8=6 so the player (1280x800 at 1:1) fits.
+  # 1280x800 is not in a 16:9 screen's list: add it (CVT timings, 59.8 Hz) if the
+  # screen takes it (a black screen: DISPLAY=:0 xrandr --output HDMI-1 --mode 1920x1080).
+  if [ "${AZ_SCREEN:-}" = 1280x800 ] && ! DISPLAY=$DISP xrandr | grep -q "^ *1280x800 "; then
+    DISPLAY=$DISP xrandr --newmode 1280x800 83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync
+    DISPLAY=$DISP xrandr --addmode "$OUT" 1280x800
+  fi
   [ -n "${AZ_SCREEN:-}" ] && DISPLAY=$DISP xrandr --output "$OUT" --mode "$AZ_SCREEN"
   # The picture comes out the right way up as is; only the touchscreen is
   # turned 180 degrees (CalibrationMatrix in xorg-az.conf).
@@ -307,6 +313,12 @@ place_window() {
       else
         DISPLAY=$DISP xdotool windowmove "$W" $(( (1024 - ${WW:-1024}) / 2 )) 0
       fi ;;
+    panel)	# the window keeps the place it was made at (centred on 1920x1080);
+		# on a smaller screen that cuts it: centre it on the screen it is on
+      set -- $(DISPLAY=$DISP xdotool getdisplaygeometry)
+      WG=$(DISPLAY=$DISP xdotool getwindowgeometry "$W" | awk '/Geometry/{print $2}')
+      PX=$(( ($1 - ${WG%x*}) / 2 )); PY=$(( ($2 - ${WG#*x}) / 2 ))
+      DISPLAY=$DISP xdotool windowmove "$W" $(( PX < 0 ? 0 : PX )) $(( PY < 0 ? 0 : PY )) ;;
     fit)
       setmode 1024x640 640 665 52.946
       DISPLAY=$DISP xdotool windowmove "$W" 0 0 ;;
