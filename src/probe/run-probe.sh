@@ -134,12 +134,16 @@ if [ "${XORG:-0}" = 1 ]; then
     TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
   fi
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
-    sudo setsid /opt/xdjaz/touch/aztouch -S 1920x1080 \
+    sudo setsid /opt/xdjaz/touch/aztouch -S ${AZ_SCREEN:-1920x1080} \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
   sudo Xorg $DISP vt${XVT:-1} -keeptty -novtswitch -nolisten tcp -nocursor -config /opt/xdjaz/xorg-az.conf \
     -logfile /opt/xdjaz/xorg.log >/dev/null 2>&1 &
   for i in $(seq 10); do DISPLAY=$DISP xrandr >/dev/null 2>&1 && break; sleep 1; done
   OUT=$(DISPLAY=$DISP xrandr | awk '/ connected/{print $1; exit}')
+  # AZ_SCREEN=1280x720: run the screen at a smaller mode (the compositor and the X
+  # server move fewer pixels: on a Pi 4 the GPU is the limit with two decks). Pair it
+  # with AZ_SCALE8=6 so the player (1280x800 at 1:1) fits.
+  [ -n "${AZ_SCREEN:-}" ] && DISPLAY=$DISP xrandr --output "$OUT" --mode "$AZ_SCREEN"
   # The picture comes out the right way up as is; only the touchscreen is
   # turned 180 degrees (CalibrationMatrix in xorg-az.conf).
   # The panel is 1024x600; how the 1280x800 UI gets onto it, PANEL=
