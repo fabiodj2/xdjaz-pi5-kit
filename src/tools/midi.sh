@@ -1,5 +1,5 @@
 #!/bin/sh
-# midi.sh NAME...: press FLX4 controls through azbridge -i (test helper)
+# midi.sh NAME...: press FLX4 (and DDJ-400) controls through azbridge -i (test helper)
 F=/opt/xdjaz/state/azbridge.in
 for k in "$@"; do
   case $k in

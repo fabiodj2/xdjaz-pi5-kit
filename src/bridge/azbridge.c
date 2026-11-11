@@ -17,8 +17,9 @@
 //   deck L  subucom_spi5.0  152 B  jog, tempo
 //
 // The controller map is a table (struct ctl), one per controller (struct
-// ctlr): the DDJ-FLX4's and the DDJ-GRV6's. -c picks one; by default the
-// GRV6 when its card is there, else the FLX4. Deck 1 drives the AZ's left
+// ctlr): the DDJ-FLX4's, the DDJ-400's (same layout as the FLX4's, so the same
+// table) and the DDJ-GRV6's. -c picks one; by default the GRV6 when its card is
+// there, else the DDJ-400, else the FLX4. Deck 1 drives the AZ's left
 // deck and mixer channel 1, deck 2 the right deck and channel 2. The GRV6's
 // deck layers 3 and 4 drive the same two sides, switched to the AZ's DECK 3
 // and DECK 4 (see "Deck layers"), and mixer channels 3 and 4.
@@ -1486,7 +1487,7 @@ int main(int argc, char **argv)
 		}
 		else { fprintf(stderr, "usage: azbridge [-c flx4|ddj400|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
 	}
-	// the controller: named, else the GRV6 if its card is there, else the FLX4
+	// the controller: named, else the GRV6 if its card is there, else the DDJ-400, else the FLX4
 	cur = NULL;
 	for (int i = NROWS(ctlrs) - 1; i >= 0 && !cur; i--) {
 		char path[64];

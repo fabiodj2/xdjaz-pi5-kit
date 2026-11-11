@@ -1,5 +1,5 @@
 [Unit]
-Description=xdjaz - XDJ-AZ player (EP147 1.30) with the DDJ-GRV6 or DDJ-FLX4
+Description=xdjaz - XDJ-AZ player (EP147 1.30) with the DDJ-GRV6, DDJ-FLX4 or DDJ-400
 # The kit's unit: the player is the only thing on this Pi's screen, started at
 # boot and started again whenever it ends or fails (for the boot-menu setup
 # see src/deploy/xdjaz.service instead).

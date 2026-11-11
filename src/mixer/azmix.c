@@ -61,10 +61,10 @@
 // Clock: the player runs 64-frame periods, finer than the kernel tick (HZ=250)
 // that snd-aloop uses by default, which makes its audio thread stall and the
 // sound choppy. snd-aloop is therefore loaded with timer_source=hw:DDJGRV6,0
-// (or DDJFLX4), so the loopback runs on the controller's clock. That clock only
+// (or DDJ400, DDJFLX4), so the loopback runs on the controller's clock. That clock only
 // ticks while our output runs, so the output is opened and started first.
 //
-//   azmix [-o device] [-p]     default: hw:DDJGRV6 if there, else hw:DDJFLX4
+//   azmix [-o device] [-p]     default: hw:DDJGRV6 if there, else hw:DDJ400, else hw:DDJFLX4
 //
 // Build: gcc -O2 -Wall -o azmix azmix.c fx.c -lasound -lm
 

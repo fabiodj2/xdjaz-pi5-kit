@@ -1,5 +1,5 @@
 [Unit]
-Description=xdjaz - XDJ-AZ player (EP147 1.30) on the panel with the DDJ-GRV6 or DDJ-FLX4
+Description=xdjaz - XDJ-AZ player (EP147 1.30) on the panel with the DDJ-GRV6, DDJ-FLX4 or DDJ-400
 # Started from the boot menu (rblaunch), never at boot. It holds the display,
 # the controller, the touch panel and the sound cards, like every other system
 # on this Pi: starting it stops them, starting them stops it (Conflicts= works

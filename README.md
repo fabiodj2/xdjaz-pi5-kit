@@ -3,7 +3,7 @@
 **English** · [Русский](README.ru.md) · [Українська](README.uk.md)
 
 Run the stock XDJ-AZ player (firmware **1.30**) on a Raspberry Pi 5 with a
-**DDJ-GRV6** (4 decks) or **DDJ-FLX4** (2 decks). It is the very player the AZ
+**DDJ-GRV6** (4 decks), **DDJ-FLX4** or **DDJ-400** (2 decks; the DDJ-400 is a port, see below). It is the very player the AZ
 runs: its screen, the rekordbox library browser, waveforms, hot cues, loops,
 Beat FX, sync. What a Pi lacks compared to the AZ (the panel's
 microcontrollers, the hardware mixer, the deck's kernel) is replaced by the
@@ -20,7 +20,7 @@ Questions, help and just AZ talk: [Discord](https://discord.gg/QgbsfBbgaa).
 | Raspberry Pi 5 | 4 or 8 GB; SD card or SSD of 32 GB or more (the player makes itself ~10 GB of cache files) |
 | Raspberry Pi OS Lite **64-bit** (Debian 13 trixie) | no desktop: the player owns the screen and the controller. A user with password-less `sudo` (the default for Pi OS's first user), in the `audio`, `video` and `input` groups |
 | Screen | HDMI; set up for a 1024×600 touch panel. Other screens: see [Another screen](#another-screen) |
-| Controller | DDJ-GRV6 or DDJ-FLX4 over USB. With both plugged in, the GRV6 is used |
+| Controller | DDJ-GRV6, DDJ-FLX4 or DDJ-400 over USB. With several plugged in, the GRV6 is used, then the DDJ-400 |
 | Firmware image | `XDJAZv130.iso`, the **decrypted** 1.30 update image (ISO 9660, label `UsbAuto`). Not included |
 | OneLibrary key | a file with one line. Without it a stick shows only folders, no playlists or library. The key is the same for every deck; ours comes from [AZ-MODS](https://github.com/Kyle-Hosman/xdj-az-mods), which opens the library with it in its emulator. Not included |
 | USB stick | a rekordbox export with OneLibrary (`PIONEER/rekordbox/exportLibrary.db`); the 1.30 player does not read the older `export.pdb` |
@@ -151,6 +151,18 @@ not touched.
 | Beat FX knob (GRV6): LC ECHO, PITCH, MOBIUS saw, MOBIUS tri | PING PONG, TRIPLET FILTER, MOBIUS, TRIPLET ROLL (the AZ has none of the four) |
 | BEAT < > | 1/8, 1/4, 1/2, 3/4, 1, 2, 4, 8 |
 | SHIFT + SMART FADER (FLX4) / SHIFT + BACK (GRV6), held 2 s | back to the system menu, when the Pi runs several DJ systems under our launcher; nothing otherwise |
+
+## DDJ-400 (port, untested on most controls)
+
+The DDJ-400 shares the FLX4's MIDI layout, so it uses the FLX4's map (`azbridge -c ddj400`,
+sound card `DDJ400`). Differences from the FLX4:
+
+- It has no mic input, no SMART FADER and no FX CH lever; those controls do nothing.
+- Its USB sound card has 4 playback channels at 44100 Hz and no capture.
+- On startup the bridge asks it for the position of every knob and fader (the same request
+  Mixxx's DDJ-400 script sends); without it the channel faders start at 0 and stay silent
+  until moved.
+- Jog resolution and the BACK / return-to-menu button are taken from the FLX4, not measured.
 
 ## AZ-MODS
 
@@ -293,7 +305,7 @@ This repository holds only its own programs, scripts and documentation. It
 contains no firmware, no part of the player, no key and no AZ-MODS file, and
 none of them may be added to it. You need your own copy of the firmware and
 are responsible for using it lawfully. Not affiliated with AlphaTheta or
-Pioneer DJ; XDJ-AZ, DDJ-GRV6, DDJ-FLX4 and rekordbox are their trademarks.
+Pioneer DJ; XDJ-AZ, DDJ-GRV6, DDJ-FLX4, DDJ-400 and rekordbox are their trademarks.
 AZ-MODS is a separate project under its own license (GPL-3.0).
 
 ## Thanks
