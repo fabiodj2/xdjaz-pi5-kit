@@ -4,7 +4,7 @@
 #
 #   xdjaz-usb.sh STATE-DIR      (run-probe.sh starts it; ends with the player)
 #
-# A stick that comes is mounted read-only at $MEDIA/<partition>, the player's
+# A stick that comes is mounted read-only (AZ_USB_RW=1: read-write for MASTER REC) at $MEDIA/<partition>, the player's
 # /media/usb (run-probe.sh binds $MEDIA there; $MEDIA is a shared mount, so
 # mounts made here later show up in the player's view too). The player is told
 # the way the deck's kernel and udev rules tell it, lines in its
@@ -56,7 +56,10 @@ attach() {    # name fstype
     mkdir -p "$mp" "$rw"
     own=""
     case $2 in vfat|exfat) own=",uid=${OWNER%:*},gid=${OWNER#*:}" ;; esac
-    if mount -o rw,noatime$own "/dev/$1" "$rw" &&
+    # Read-write only with AZ_USB_RW=1: a stick mounted read-write is left dirty
+    # ("Volume was not properly unmounted") when it is pulled or the Pi stops
+    # while the service runs, and FAT can then lose files.
+    if [ "${AZ_USB_RW:-0}" = 1 ] && mount -o rw,noatime$own "/dev/$1" "$rw" &&
        mount --bind "$rw" "$mp" && mount -o remount,bind,ro "$mp"; then
         mkdir -p "$rw/$REC_DIR" && chown "$OWNER" "$rw/$REC_DIR" 2>/dev/null
         mount --bind "$rw/$REC_DIR" "$mp/$REC_DIR" || log "$1: no $REC_DIR"
@@ -69,7 +72,7 @@ attach() {    # name fstype
             rmdir "$mp"
             return
         fi
-        log "$1: read-only, no MASTER REC"
+        log "$1: read-only, no MASTER REC (AZ_USB_RW=1 mounts it read-write)"
     fi
     if [ -d "$mp/PIONEER/rekordbox" ]; then
         rm -rf "$COPY/$1"
