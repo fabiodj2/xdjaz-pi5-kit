@@ -558,6 +558,7 @@ struct ctlr {
 	int keepalive_opt;	// sent only with -k
 	const uint8_t *init;	// sent once on open, after the query
 	int init_n;
+	int led_ms;		// resend every LED this often (0: LED_MS)
 };
 
 #define NROWS(t)	(int)(sizeof(t) / sizeof((t)[0]))
@@ -568,8 +569,11 @@ static const struct ctlr ctlrs[] = {
 	  flx4_init, sizeof(flx4_init) },
 	// DDJ-400: the FLX4's MIDI layout (see FLX4_DECK), so the same table. Only
 	// the position query is known for this unit (no keepalive, no init). No mic.
-	// Jog 720 ticks a turn; 0x09 as for the FLX4. Untested on the unit.
-	{ "ddj400", "DDJ400", flx4, NROWS(flx4), 2, 2, 720, 0x09, NULL, ddj400_query },
+	// Jog 720 ticks a turn; 0x09 as for the FLX4. LEDs are resent once a second
+	// (the FLX4's 100 ms is ~1.5 kB/s of MIDI, which seems to wedge this unit's
+	// MIDI input: its Tx counter stopped at 831 bytes). Untested on the unit.
+	{ "ddj400", "DDJ400", flx4, NROWS(flx4), 2, 2, 720, 0x09, NULL, ddj400_query,
+	  .led_ms = 1000 },
 	// GRV6 jog: 6449 a turn (measured on the unit); SHIFT + BACK
 	{ "grv6", "DDJGRV6", grv6, NROWS(grv6), 4, 4, 6449, 0x66,
 	  grv6_keepalive, grv6_query, sizeof(grv6_keepalive), 1 },
@@ -1697,7 +1701,7 @@ int main(int argc, char **argv)
 		if (midi_out) {
 			int all = t >= next_led;
 			if (all)
-				next_led = t + LED_MS / 1000.0;
+				next_led = t + (cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
 			leds_send(midi_out, all);
 			if (t >= next_meter) {
 				next_meter = t + METER_MS / 1000.0;
