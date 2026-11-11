@@ -11,7 +11,7 @@ set -u
 MEDIA=/run/xdjaz-media
 # The controller: AZ_CARD, else the DDJ-GRV6 if it is there, else the DDJ-FLX4
 # (the bridge and the mixer choose the same way).
-CARDS=${AZ_CARD:-DDJGRV6 DDJFLX4}
+CARDS=${AZ_CARD:-DDJGRV6 DDJ400 DDJFLX4}
 CARD=
 
 log() { echo "xdjaz-prep: $*"; }

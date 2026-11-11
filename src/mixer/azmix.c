@@ -695,7 +695,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "azmix: no realtime priority, running normal\n");
 
 	// the controllers take S24_3LE or S16_LE
-	static const char *const cards[] = { "hw:DDJGRV6", "hw:DDJFLX4" };
+	static const char *const cards[] = { "hw:DDJGRV6", "hw:DDJ400", "hw:DDJFLX4" };
 	snd_pcm_format_t ofmt = SND_PCM_FORMAT_S24_3LE;
 	snd_pcm_t *out = NULL;
 	static struct mic mic;

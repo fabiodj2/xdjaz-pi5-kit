@@ -317,7 +317,7 @@ place_window
 # announced again (xdjaz-usb.sh, on SIGHUP). AZ_SLEEP=0: the old way, the
 # player fails and the menu comes back.
 CTL_CARD=""
-for c in ${AZ_CARD:-DDJGRV6 DDJFLX4}; do [ -e "/proc/asound/$c" ] && { CTL_CARD=$c; break; }; done
+for c in ${AZ_CARD:-DDJGRV6 DDJ400 DDJFLX4}; do [ -e "/proc/asound/$c" ] && { CTL_CARD=$c; break; }; done
 asleep() { [ "$T" = 0 ] && [ "${AZ_SLEEP:-1}" != 0 ] && [ -n "$CTL_CARD" ] && [ ! -e "/proc/asound/$CTL_CARD" ]; }
 # Back from sleep: the controller's audio side can take a while after its USB
 # comes back, and the player needs the mixer running (its clock) before it

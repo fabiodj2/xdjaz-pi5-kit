@@ -23,7 +23,7 @@
 // deck layers 3 and 4 drive the same two sides, switched to the AZ's DECK 3
 // and DECK 4 (see "Deck layers"), and mixer channels 3 and 4.
 //
-//   azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
+//   azbridge [-c flx4|ddj400|grv6] [-k] [-s socket] [-m midi-device] [-v] [-t txlog] [-i fifo]
 //            [-L fifo]
 //
 // -k also sends the GRV6 its "host here" message (see grv6_keepalive).
@@ -557,6 +557,10 @@ static const struct ctlr ctlrs[] = {
 	{ "flx4", "DDJFLX4", flx4, NROWS(flx4), 2, 2, 720, 0x09,
 	  flx4_keepalive, flx4_query, sizeof(flx4_keepalive), 0,
 	  flx4_init, sizeof(flx4_init) },
+	// DDJ-400: the FLX4's MIDI layout (see FLX4_DECK), so the same table. No
+	// vendor SysEx (keepalive, query, init): not known for this unit. No mic.
+	// Jog 720 ticks a turn; 0x09 as for the FLX4. Untested on the unit.
+	{ "ddj400", "DDJ400", flx4, NROWS(flx4), 2, 2, 720, 0x09 },
 	// GRV6 jog: 6449 a turn (measured on the unit); SHIFT + BACK
 	{ "grv6", "DDJGRV6", grv6, NROWS(grv6), 4, 4, 6449, 0x66,
 	  grv6_keepalive, grv6_query, sizeof(grv6_keepalive), 1 },
@@ -1472,7 +1476,7 @@ int main(int argc, char **argv)
 			if (!(txlog = fopen(optarg, "w"))) { perror(optarg); return 1; }
 			setvbuf(txlog, NULL, _IOLBF, 0);
 		}
-		else { fprintf(stderr, "usage: azbridge [-c flx4|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
+		else { fprintf(stderr, "usage: azbridge [-c flx4|ddj400|grv6] [-k] [-s socket] [-m midi] [-v] [-t txlog] [-i fifo] [-L fifo]\n"); return 2; }
 	}
 	// the controller: named, else the GRV6 if its card is there, else the FLX4
 	cur = NULL;
@@ -1533,7 +1537,8 @@ int main(int argc, char **argv)
 			if (snd_rawmidi_open(&midi, &midi_out, midi_dev, SND_RAWMIDI_NONBLOCK) == 0) {
 				fprintf(stderr, "azbridge: controller %s open\n", midi_dev);
 				// it answers with the position of every knob and fader
-				snd_rawmidi_write(midi_out, cur->query, sizeof(flx4_query));
+				if (cur->query)
+					snd_rawmidi_write(midi_out, cur->query, sizeof(flx4_query));
 				if (cur->init)
 					snd_rawmidi_write(midi_out, cur->init, cur->init_n);
 				lever_since = now(), lever_trust = 0;
