@@ -16,6 +16,9 @@ T=${1:-40}
 # STRIP=1 (default; the panel, PANEL=juce): the AZ's browse buttons on screen,
 # right of the player's window (strip/azstrip.py)
 strip_on() { [ "${XORG:-0}" = 1 ] && [ "${PANEL:-juce}" = juce ] && [ "${STRIP:-1}" = 1 ] && [ -f /opt/xdjaz/strip/azstrip.py ]; }
+# DROP=1 (default when STRIP is off): the same buttons as a drop-down bar from a
+# tab at the top of the screen, for any resolution (strip/azdrop.py)
+drop_on() { [ "${XORG:-0}" = 1 ] && [ "${DROP:-1}" = 1 ] && ! strip_on && [ -f /opt/xdjaz/strip/azdrop.py ]; }
 # Files the bridge, the mixer and azvsync share (mixer frame, meters, vsync
 # time). Not /dev/shm: logind (RemoveIPC) empties the user's files there when
 # their last session closes, and a mixer restarted later (wake-up) would find
@@ -190,9 +193,9 @@ start_mix() {
 start_mix
 # the on-screen buttons (STRIP) press through its FIFO
 BRIDGE_FIFO=""
-strip_on && case " ${AZBRIDGE_OPTS:-} " in *" -i "*) ;; *) BRIDGE_FIFO="-i $STATE/azbridge.in" ;; esac
+{ strip_on || drop_on; } && case " ${AZBRIDGE_OPTS:-} " in *" -i "*) ;; *) BRIDGE_FIFO="-i $STATE/azbridge.in" ;; esac
 # ... and tells them the open view (its LEDs), to light its button
-strip_on && BRIDGE_FIFO="$BRIDGE_FIFO -L $STATE/azstrip.in"
+{ strip_on || drop_on; } && BRIDGE_FIFO="$BRIDGE_FIFO -L $STATE/azstrip.in"
 [ -x /opt/xdjaz/bridge/azbridge ] && ! pgrep -x azbridge >/dev/null &&
   setsid /opt/xdjaz/bridge/azbridge -v ${AZBRIDGE_OPTS:-} $BRIDGE_FIFO -s "$STATE/tmp/azbridge.sock" \
     > /opt/xdjaz/bridge/azbridge.log 2>&1 < /dev/null &
@@ -302,6 +305,9 @@ place_window() {
       DISPLAY=$DISP xrandr --fb 1024x640 --output "$OUT" --filter bilinear \
         --transform 1,0,0,0,1.066667,0,0,0,1 ;;
     esac
+    drop_on && ! pgrep -f "strip/azdrop[.]py" >/dev/null &&
+      (cd /opt/xdjaz/strip && DISPLAY=$DISP setsid python3 azdrop.py \
+        > /opt/xdjaz/strip/azdrop.log 2>&1 < /dev/null &)
     break
   fi
   sleep 1
@@ -345,7 +351,7 @@ while [ "$T" = 0 ] || [ $i -lt "$T" ]; do
     echo "controller $CTL_CARD gone: the player sleeps"
     kill -INT $BPID 2>/dev/null; sleep 3; kill -KILL $BPID 2>/dev/null; wait $BPID 2>/dev/null
     sudo pkill -x azmix
-    pkill -f "strip/azstrip[.]py"	# black screen while asleep; place_window brings it back
+    pkill -f "strip/azstrip[.]py"; pkill -f "strip/azdrop[.]py"	# black screen while asleep; place_window brings it back
     while asleep; do sleep 1; done
     wake; WAKES=0
     continue
@@ -367,7 +373,7 @@ done
 if kill -0 $BPID 2>/dev/null; then echo "still running after ${T}s"; kill -INT $BPID; sleep 3; kill -KILL $BPID 2>/dev/null; fi
 wait $BPID; RC=$?; echo "exit=$RC"
 if [ "${XORG:-0}" = 1 ]; then
-  [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
+  [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -f "strip/azdrop[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
 else
   pkill -f "Xvfb $DISP"
 fi

@@ -102,6 +102,8 @@ install -m 755 "$SRC/deploy/xdjaz-usb.sh" "$OPT/xdjaz-usb.sh"
 install -m 755 "$SRC/tools/midi.sh" "$SRC/tools/shot.py" "$OPT/tools/"
 # the on-screen buttons right of the player (STRIP, PANEL=juce)
 install -m 755 "$SRC/strip/azstrip.py" "$OPT/strip/azstrip.py"
+# the same buttons as a drop-down bar from the top edge (DROP, any screen)
+install -m 755 "$SRC/strip/azdrop.py" "$OPT/strip/azdrop.py"
 # the Wi-Fi broker: the player's Wi-Fi screen -> the Pi's Wi-Fi (--network)
 install -m 755 "$SRC/wifi/azwifi.py" "$OPT/wifi/azwifi.py"
 # the logs the pieces write next to themselves
