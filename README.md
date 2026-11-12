@@ -192,6 +192,43 @@ on by default only on a Pi 5), the LEDs on or off, a compositor
 30 fps, so they stay on. On the screen, `AZ_SCREEN=1280x800` adds that mode if the screen
 lacks it.
 
+### 7-inch 1024x600 HDMI panel with a QDtech MPI7003 touch (measured)
+
+The panel's EDID is generic: it lists only 16:9 modes (1920x1080 down to 800x450) and
+`255mm x 255mm`, not 1024x600, so X starts in 1600x900 or 1920x1080 and the panel scales it.
+The touch (USB `0483:5750`, input name `QDtech MPI7003`) reaches X directly, not through
+`aztouch`. Checked with a grid and a tap-the-cross test (touch scale, 1.000 = the touch
+lands on the picture):
+
+| X mode | the panel shows | touch scale (x, y) |
+|---|---|---|
+| 1024x600 | the whole picture, 1:1 | 1.008, 0.983 |
+| 1280x720 | the whole picture, scaled | 0.984, 0.962 |
+| 1280x800 | the whole picture, scaled | 0.973, 0.979 (0.984, 0.998 on a second run) |
+
+So the panel does not crop any of them, and the touch follows the picture in all of them.
+
+The mods draw with coordinates of a 1280x800 screen (the FPS readout sits at x 1090-1278,
+y 48-88), so the player is run at that size: no scaling by X (`AZ_FIT` stretches the picture
+and is off), the screen in 1280x800 and the player at `AZ_SCALE8=8`:
+
+```ini
+[Service]
+Environment=AZMODS=1
+Environment=COMP=0
+Environment=AZ_SCREEN=1280x800
+Environment=AZ_SCALE8=8
+```
+
+With that the MOD MENU shows whole and the touch is aligned. Two decks play at 30 fps on a
+Pi 4 (a smaller `AZ_SCALE8` gives more: 6 -> 37, 5 -> 60 with the screen at 1080p, but the
+mods then draw outside the smaller window).
+
+`AZ_SCREEN=1280x800` (or `1024x600`) is written into the X config as a `Modeline` plus
+`PreferredMode`, because a mode made with `xrandr --newmode` at start did not hold: the next
+`xrandr` call no longer found it (`newmode=0 addmode=1` in the journal). `~/testmode.sh`-style
+checks by hand are `xrandr --newmode`, `--addmode`, `--output --mode`, one call each.
+
 The DDJ-400 is bus powered. On the unit used here it hung (still enumerated, no USB error,
 the Pi at `throttled=0x0`) with the LEDs on and the master volume turned up, and only a
 power cycle (pulling the cable) brought it back; with `AZBRIDGE_OPTS=-n` (no LEDs, no VU)
