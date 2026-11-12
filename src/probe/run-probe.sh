@@ -350,7 +350,18 @@ place_window() {
       set -- $(DISPLAY=$DISP xdotool getdisplaygeometry)
       WG=$(DISPLAY=$DISP xdotool getwindowgeometry "$W" | awk '/Geometry/{print $2}')
       PX=$(( ($1 - ${WG%x*}) / 2 )); PY=$(( ($2 - ${WG#*x}) / 2 ))
-      DISPLAY=$DISP xdotool windowmove "$W" $(( PX < 0 ? 0 : PX )) $(( PY < 0 ? 0 : PY )) ;;
+      DISPLAY=$DISP xdotool windowmove "$W" $(( PX < 0 ? 0 : PX )) $(( PY < 0 ? 0 : PY ))
+      # AZ_FIT=1: the player draws small (AZ_SCALE8=5: 800x500, the cheap size) and X
+      # scales it up to fill the screen: the framebuffer is the window, the output shows
+      # it stretched (bilinear). Costs a little GPU; the player's own work is unchanged.
+      if [ "${AZ_FIT:-0}" = 1 ]; then
+        MODE=$(DISPLAY=$DISP xrandr | awk '/\*/{print $1; exit}')
+        FW=${WG%x*}; FH=${WG#*x}
+        DISPLAY=$DISP xdotool windowmove "$W" 0 0
+        DISPLAY=$DISP xrandr --fb "${FW}x${FH}" --output "$OUT" --mode "$MODE" --filter bilinear \
+          --transform "$(awk -v fw="$FW" -v fh="$FH" -v sw="$1" -v sh="$2" 'BEGIN{printf "%.6f,0,0,0,%.6f,0,0,0,1", fw/sw, fh/sh}')"
+        echo "azfit: ${FW}x${FH} shown on $MODE"
+      fi ;;
     fit)
       setmode 1024x640 640 665 52.946
       DISPLAY=$DISP xdotool windowmove "$W" 0 0 ;;
