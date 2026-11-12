@@ -38,13 +38,20 @@ VIEWS = azstrip.VIEWS
 MC = azstrip.MC
 
 RETRACT_S = float(os.environ.get("DROP_RETRACT", "8"))
-SCALE = float(os.environ.get("DROP_SCALE", "1"))
-
-TAB_W, TAB_H = int(220 * SCALE), int(34 * SCALE)
-TILE_W, TILE_H = int(150 * SCALE), int(104 * SCALE)
-ICON = int(44 * SCALE)
-FONT_PT = max(10, int(15 * SCALE))
 SEP = 3
+BAR_FULL = 9 * 150 + 8 * SEP	# the bar at scale 1, for 9 buttons
+
+
+def apply_scale(scale):
+	global SCALE, TAB_W, TAB_H, TILE_W, TILE_H, ICON, FONT_PT
+	SCALE = scale
+	TAB_W, TAB_H = int(220 * scale), int(34 * scale)
+	TILE_W, TILE_H = int(150 * scale), int(104 * scale)
+	ICON = int(44 * scale)
+	FONT_PT = max(10, int(15 * scale))
+
+
+apply_scale(float(os.environ.get("DROP_SCALE", "1")))
 
 TILE, LIT, GAP, INK = azstrip.TILE, azstrip.LIT, azstrip.GAP, azstrip.INK
 
@@ -123,6 +130,11 @@ def give_focus_back():
 
 
 def main():
+	preview = "--preview" in sys.argv
+	root = None if preview else tk.Tk()
+	sw, sh = (1920, 1080) if preview else (root.winfo_screenwidth(), root.winfo_screenheight())
+	if "DROP_SCALE" not in os.environ:	# the bar must fit the screen (a 1024 px panel)
+		apply_scale(min(1.0, (sw - 16) / BAR_FULL))
 	icons = [safe_icon(p, c) for (_, p, c, _, _) in BUTTONS]
 
 	if "--preview" in sys.argv:
@@ -134,8 +146,6 @@ def main():
 		out.save(sys.argv[sys.argv.index("--preview") + 1])
 		return
 
-	root = tk.Tk()
-	sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
 	root.overrideredirect(True)
 	root.geometry("%dx%d+%d+0" % (TAB_W, TAB_H, (sw - TAB_W) // 2))
 	root.configure(bg="black")
