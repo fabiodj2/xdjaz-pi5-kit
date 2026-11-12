@@ -145,12 +145,11 @@ if [ "${XORG:-0}" = 1 ]; then
   # with AZ_SCALE8=6 so the player (1280x800 at 1:1) fits.
   # A 16:9 screen lists neither 1280x800 nor 1024x600: add them (CVT timings) under a
   # name of their own ("..._60": a plain "1280x800" is already a name in X's mode pool).
-  # Creating, adding and setting the mode go in ONE xrandr call, and it is tried again:
-  # at start X is still probing the screen, and a mode made by one call was gone by
-  # the next ("cannot find mode"). A black screen: DISPLAY=:0 xrandr --output HDMI-1
-  # --mode 1920x1080.
+  # One xrandr call each for --newmode, --addmode and --mode (xrandr reads what follows
+  # --newmode's timing as its flags, so the three cannot be chained), tried again, each
+  # result logged. A black screen: DISPLAY=:0 xrandr --output HDMI-1 --mode 1920x1080.
   az_screen() {
-    local want=$1 timing n
+    local want=$1 timing n r1 r2 r3
     if DISPLAY=$DISP xrandr | grep -q "^ *$want "; then
       DISPLAY=$DISP xrandr --output "$OUT" --mode "$want"; return
     fi
@@ -159,10 +158,13 @@ if [ "${XORG:-0}" = 1 ]; then
     1024x600) timing="49.00 1024 1072 1168 1312 600 603 613 624 -hsync +vsync" ;;
     *) echo "az_screen: no timing for $want"; return ;;
     esac
-    for n in 1 2 3 4 5; do
-      DISPLAY=$DISP xrandr | grep -q "^ *${want}_60 " ||
-        DISPLAY=$DISP xrandr --newmode "${want}_60" $timing --addmode "$OUT" "${want}_60"
-      DISPLAY=$DISP xrandr --output "$OUT" --mode "${want}_60" && { echo "az_screen: ${want}_60 set (try $n)"; return; }
+    for n in 1 2 3 4 5 6 7 8; do
+      r1=-
+      DISPLAY=$DISP xrandr | grep -q "^ *${want}_60 " || { DISPLAY=$DISP xrandr --newmode "${want}_60" $timing; r1=$?; }
+      DISPLAY=$DISP xrandr --addmode "$OUT" "${want}_60"; r2=$?
+      DISPLAY=$DISP xrandr --output "$OUT" --mode "${want}_60"; r3=$?
+      echo "az_screen: try $n ${want}_60 newmode=$r1 addmode=$r2 mode=$r3"
+      [ "$r3" = 0 ] && return
       sleep 1
     done
     echo "az_screen: could not set $want"
