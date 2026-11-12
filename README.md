@@ -176,7 +176,6 @@ sets the frame rate (`/etc/systemd/system/xdjaz.service.d/local.conf`):
 Environment=AZMODS=1
 Environment=COMP=0
 Environment=AZ_SCALE8=5
-Environment=AZ_PIN=0
 ```
 
 | `AZ_SCALE8` | player | frame rate, two decks |
@@ -186,7 +185,8 @@ Environment=AZ_PIN=0
 | 5 | 800x500 | 60 |
 
 What did not help here (each tried alone): the CPU at 2.0 GHz, `AZ_PIN=1` (pinning the UI
-thread alone on a core: 28 against 33 fps with it off), the LEDs on or off, a compositor
+thread alone on a core: 30 against 60 fps with it off, at the settings above; `azpin` is
+on by default only on a Pi 5), the LEDs on or off, a compositor
 (`COMP=xrender`, the GPU gets busy), running the screen at 1280x720, and the blit guard
 (`azshim` held 2 of 275 puts a second, 2 ms in all). Without the mods the player paints at
 30 fps, so they stay on. On the screen, `AZ_SCREEN=1280x800` adds that mode if the screen

@@ -231,7 +231,12 @@ VSYNC=/run/xdjaz/az-vsync_time
 # The player's UI thread (it paints everything, in software) gets cpu 3 alone
 # and nice -10, everything else cpu 0-2: no frames late from preemption (215
 # a minute at 1.5 GHz without it; pin/azpin.py). AZ_PIN=0: off; AZ_PIN_CPU.
-[ "${AZ_PIN:-1}" = 1 ] && [ -f /opt/xdjaz/pin/azpin.py ] && ! pgrep -f "pin/azpin[.]py" >/dev/null &&
+# Measured on a Pi 5 only: on a Pi 4 (same four cores, a slower machine) it took two
+# decks from 60 to 30 fps, so it is on by default on a Pi 5 and off elsewhere
+# (AZ_PIN=1 turns it on anywhere).
+AZ_PIN_DEFAULT=0
+grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null && AZ_PIN_DEFAULT=1
+[ "${AZ_PIN:-$AZ_PIN_DEFAULT}" = 1 ] && [ -f /opt/xdjaz/pin/azpin.py ] && ! pgrep -f "pin/azpin[.]py" >/dev/null &&
   sudo setsid python3 /opt/xdjaz/pin/azpin.py -c "${AZ_PIN_CPU:-3}" \
     > /opt/xdjaz/pin/azpin.log 2>&1 < /dev/null &
 sleep 1
