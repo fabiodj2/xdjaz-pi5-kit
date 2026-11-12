@@ -136,7 +136,22 @@ if [ "${XORG:-0}" = 1 ]; then
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
     sudo setsid /opt/xdjaz/touch/aztouch -S ${AZ_SCREEN:-1920x1080} \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
-  sudo Xorg $DISP vt${XVT:-1} -keeptty -novtswitch -nolisten tcp -nocursor -config /opt/xdjaz/xorg-az.conf \
+  # AZ_SCREEN=1280x800 / 1024x600: a 16:9 screen lists neither. The X config gets the mode
+  # as a Modeline + PreferredMode (as the original kit does for its panel), so X starts in it.
+  # Making the mode with xrandr at start does not hold: --newmode succeeds and the next
+  # xrandr call no longer finds it.
+  XCONF=/opt/xdjaz/xorg-az.conf
+  case "${AZ_SCREEN:-}" in
+  1280x800) AZ_TIMING="83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync" ;;
+  1024x600) AZ_TIMING="49.00 1024 1072 1168 1312 600 603 613 624 -hsync +vsync" ;;
+  *) AZ_TIMING="" ;;
+  esac
+  if [ -n "$AZ_TIMING" ]; then
+    XCONF=/run/xdjaz/xorg-az.conf
+    awk -v m="${AZ_SCREEN}_60" -v t="$AZ_TIMING" '{ print } /Identifier "panel"/ { printf "    Modeline \"%s\" %s\n    Option \"PreferredMode\" \"%s\"\n", m, t, m }' \
+      /opt/xdjaz/xorg-az.conf > "$XCONF"
+  fi
+  sudo Xorg $DISP vt${XVT:-1} -keeptty -novtswitch -nolisten tcp -nocursor -config "$XCONF" \
     -logfile /opt/xdjaz/xorg.log >/dev/null 2>&1 &
   for i in $(seq 10); do DISPLAY=$DISP xrandr >/dev/null 2>&1 && break; sleep 1; done
   OUT=$(DISPLAY=$DISP xrandr | awk '/ connected/{print $1; exit}')
@@ -152,6 +167,9 @@ if [ "${XORG:-0}" = 1 ]; then
     local want=$1 timing n r1 r2 r3
     if DISPLAY=$DISP xrandr | grep -q "^ *$want "; then
       DISPLAY=$DISP xrandr --output "$OUT" --mode "$want"; return
+    fi
+    if DISPLAY=$DISP xrandr | grep -q "^ *${want}_60 "; then	# from the X config
+      DISPLAY=$DISP xrandr --output "$OUT" --mode "${want}_60"; echo "az_screen: ${want}_60 from the X config"; return
     fi
     case "$want" in
     1280x800) timing="83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync" ;;
