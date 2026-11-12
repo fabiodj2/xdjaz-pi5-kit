@@ -144,24 +144,30 @@ if [ "${XORG:-0}" = 1 ]; then
   # server move fewer pixels: on a Pi 4 the GPU is the limit with two decks). Pair it
   # with AZ_SCALE8=6 so the player (1280x800 at 1:1) fits.
   # A 16:9 screen lists neither 1280x800 nor 1024x600: add them (CVT timings) under a
-  # name of their own ("..._60": a plain "1280x800" is already a name in X's mode pool,
-  # and xrandr then cannot find or add the mode we made). A black screen: DISPLAY=:0
-  # xrandr --output HDMI-1 --mode 1920x1080.
-  az_mode() {
-    local want=$1 timing
-    DISPLAY=$DISP xrandr | grep -q "^ *$want " && { echo "$want"; return; }
+  # name of their own ("..._60": a plain "1280x800" is already a name in X's mode pool).
+  # Creating, adding and setting the mode go in ONE xrandr call, and it is tried again:
+  # at start X is still probing the screen, and a mode made by one call was gone by
+  # the next ("cannot find mode"). A black screen: DISPLAY=:0 xrandr --output HDMI-1
+  # --mode 1920x1080.
+  az_screen() {
+    local want=$1 timing n
+    if DISPLAY=$DISP xrandr | grep -q "^ *$want "; then
+      DISPLAY=$DISP xrandr --output "$OUT" --mode "$want"; return
+    fi
     case "$want" in
     1280x800) timing="83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync" ;;
     1024x600) timing="49.00 1024 1072 1168 1312 600 603 613 624 -hsync +vsync" ;;
-    *) echo "$want"; return ;;
+    *) echo "az_screen: no timing for $want"; return ;;
     esac
-    DISPLAY=$DISP xrandr | grep -q "^ *${want}_60 " || {
-      DISPLAY=$DISP xrandr --newmode "${want}_60" $timing
-      DISPLAY=$DISP xrandr --addmode "$OUT" "${want}_60"
-    }
-    echo "${want}_60"
+    for n in 1 2 3 4 5; do
+      DISPLAY=$DISP xrandr | grep -q "^ *${want}_60 " ||
+        DISPLAY=$DISP xrandr --newmode "${want}_60" $timing --addmode "$OUT" "${want}_60"
+      DISPLAY=$DISP xrandr --output "$OUT" --mode "${want}_60" && { echo "az_screen: ${want}_60 set (try $n)"; return; }
+      sleep 1
+    done
+    echo "az_screen: could not set $want"
   }
-  [ -n "${AZ_SCREEN:-}" ] && DISPLAY=$DISP xrandr --output "$OUT" --mode "$(az_mode "$AZ_SCREEN")"
+  [ -n "${AZ_SCREEN:-}" ] && az_screen "$AZ_SCREEN"
   # The picture comes out the right way up as is; only the touchscreen is
   # turned 180 degrees (CalibrationMatrix in xorg-az.conf).
   # The panel is 1024x600; how the 1280x800 UI gets onto it, PANEL=
