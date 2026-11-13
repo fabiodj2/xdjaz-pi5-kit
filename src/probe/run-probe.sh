@@ -53,12 +53,15 @@ printf XX > "$STATE/tmp/ccode"
 # which the AZ keeps in its eMMC (fw_env.config: /dev/mmcblk1). The Pi has no such flash and the
 # rootfs has no /var/lock (fw_printenv's lock file), so the lookup failed. Here the environment is
 # a plain file, made at each start: release = /opt/xdjaz/VERSION (src/deploy/VERSION), or
-# AZ_RELEASE.
+# AZ_RELEASE. The Serial No. is `fw_printenv -n serial_number`, in the same file.
 mkdir -p "$ROOT/var/lock" "$ROOT/home/root/settings"
 [ -e "$ROOT/etc/fw_env.config.stock" ] || cp "$ROOT/etc/fw_env.config" "$ROOT/etc/fw_env.config.stock"
 printf '/home/root/settings/ubootenv.bin\t0x0\t0x8000\n' > "$ROOT/etc/fw_env.config"
+# serial_number = the board's own serial (the Serial line of /proc/cpuinfo), or AZ_SERIAL.
+SERIAL=${AZ_SERIAL:-$(awk '/^Serial/ { print $NF; exit }' /proc/cpuinfo 2>/dev/null)}
 python3 -I /opt/xdjaz/deploy/mkubootenv.py "$ROOT/home/root/settings/ubootenv.bin" \
-  "release=${AZ_RELEASE:-$(head -n1 /opt/xdjaz/VERSION 2>/dev/null || echo 1.30)}"
+  "release=${AZ_RELEASE:-$(head -n1 /opt/xdjaz/VERSION 2>/dev/null || echo 1.30)}" \
+  "serial_number=${SERIAL:-ddj400xdjaz}"
 [ -n "${AZ_OPEN_LOG:-}" ] && : > "$STATE/tmp/open.log"	# AZ_OPEN_LOG=1: azshim lists every open
 printf 00:00:00:00:00:00 > "$STATE/tmp/mlan0Addr"
 # USB sticks, inserted and pulled while the player runs: xdjaz-usb.sh (root)

@@ -108,6 +108,8 @@ not touched.
   each start (`mkubootenv.py`) with `release=` the content of `src/deploy/VERSION`
   (`1.30-D1.0`: the player's 1.30, then D and the kit's own number, raised with the improvements;
   `AZ_RELEASE` overrides it). The stock `fw_env.config` is kept as `fw_env.config.stock`.
+  The **Serial No.** is `fw_printenv -n serial_number`, read from the same file: the Pi's own
+  serial (the Serial line of `/proc/cpuinfo`), or `AZ_SERIAL` if set.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns
