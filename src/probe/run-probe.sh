@@ -142,7 +142,9 @@ if [ "${XORG:-0}" = 1 ]; then
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
     sudo setsid /opt/xdjaz/touch/aztouch -S ${AZ_SCREEN:-1920x1080} $BFXTOUCH \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
-  # AZ_SCREEN=1280x800 / 1024x600: a 16:9 screen lists neither. The X config gets the mode
+  # AZ_SCREEN=1280x800 / 1024x600 / 1024x640: a 16:9 screen lists none of them.
+  # 1024x640 with AZ_SCALE8=6.4 fills the 7" panel (it squeezes the 640 lines into its 600).
+  # (a 16:9 screen lists neither of the first two.) The X config gets the mode
   # as a Modeline + PreferredMode (as the original kit does for its panel), so X starts in it.
   # Making the mode with xrandr at start does not hold: --newmode succeeds and the next
   # xrandr call no longer finds it.
@@ -150,6 +152,7 @@ if [ "${XORG:-0}" = 1 ]; then
   case "${AZ_SCREEN:-}" in
   1280x800) AZ_TIMING="83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync" ;;
   1024x600) AZ_TIMING="49.00 1024 1072 1168 1312 600 603 613 624 -hsync +vsync" ;;
+  1024x640) AZ_TIMING="46.75 1024 1072 1104 1184 640 643 649 659 +hsync -vsync" ;;
   *) AZ_TIMING="" ;;
   esac
   if [ -n "$AZ_TIMING" ]; then
@@ -180,6 +183,7 @@ if [ "${XORG:-0}" = 1 ]; then
     case "$want" in
     1280x800) timing="83.46 1280 1344 1480 1680 800 803 809 831 -hsync +vsync" ;;
     1024x600) timing="49.00 1024 1072 1168 1312 600 603 613 624 -hsync +vsync" ;;
+    1024x640) timing="46.75 1024 1072 1104 1184 640 643 649 659 +hsync -vsync" ;;
     *) echo "az_screen: no timing for $want"; return ;;
     esac
     for n in 1 2 3 4 5 6 7 8; do

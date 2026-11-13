@@ -26,3 +26,12 @@ B 917 124 984 159 next     # right half
 B 849 164 894 197 beat-    # the beat box on the left (3/4 in the layout)
 B 940 164 984 197 beat+    # the one on the right
 X 849 262 984 306          # the X-PAD PARAMETER strip (1/16 ... 1)
+
+# The same zones for AZ_SCREEN=1024x640 AZ_SCALE8=6.4 (the player's layout at 0.8, its window
+# at x 0; the panel squeezes the 640 lines into its 600, no side strips). Use these instead:
+# B 872 72 1016 94 on
+# B 872 132 944 170 prev
+# B 944 132 1016 170 next
+# B 872 174 920 210 beat-
+# B 968 174 1016 210 beat+
+# X 872 280 1016 326
