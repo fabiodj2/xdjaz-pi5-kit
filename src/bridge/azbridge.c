@@ -353,9 +353,6 @@ static const struct ctl flx4[] = {
 	{ 0xB6, 0x18, FADER14, DEV_MC, 62, 65, 4 },	// CFX ch2 -> COLOR ch2
 	{ 0xB6, 0x0C, FADER14, DEV_MC, 76, 80, 6 },	// HEADPHONES MIX
 	{ 0xB6, 0x0D, FADER14, DEV_MC, 77, 80, 4 },	// HEADPHONES LEVEL
-	// MASTER LEVEL: the DDJ-400's knob is MIDI (CC 8, 14 bit, seen as B6 08 / B6 28);
-	// the FLX4's is analog and sends nothing, so the row does nothing there.
-	{ 0xB6, 0x08, FADER14, DEV_MC, 56, 60, 6 },	// MASTER LEVEL
 	{ 0x96, 0x63, BUTTON, DEV_MC, 21, 6 },		// MASTER CUE
 	{ 0x96, 0x00, CFX_PRESS },			// SMART CFX
 	{ 0x96, 0x08, CFX_NEXT },			// SHIFT + SMART CFX

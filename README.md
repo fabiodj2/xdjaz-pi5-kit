@@ -99,9 +99,6 @@ not touched.
 - **Beat FX.** All 14 of the player's effects, beat, level, channel. On a
   channel the effect comes after the fader: pull the fader and the echo's tail
   stays. The GRV6's eight beat lamps show the chosen beat.
-- **Master level.** The DDJ-400's MASTER LEVEL knob (a 14-bit MIDI CC) sets the
-  mixer's master level. The FLX4's is analog and the GRV6's works inside the unit,
-  so they send nothing. Until the knob first moves, the level is at full.
 - **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
   The track preview (touch preview in the browser) plays in the headphones
