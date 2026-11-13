@@ -835,6 +835,72 @@ static unsigned led_group(int i)
 	return k < L_PAD0 ? G_MODES : G_PADS;
 }
 
+// ---- MIDI output with a trail -------------------------------------------------
+//
+// midi_out is non-blocking, so when the controller stops taking data (the DDJ-400
+// hangs its MIDI OUT endpoint and only a cable pull recovers it) writes fail with
+// EAGAIN and used to be dropped without a word. midi_write keeps the last
+// TRAIL_N writes and, the first time one fails or comes up short, logs the failure
+// and dumps the trail (time, bytes), then logs again every 10 s while it lasts and
+// when it clears.
+#define TRAIL_N	128
+static struct { double t; uint8_t n, b[3]; } trail[TRAIL_N];
+static unsigned trail_at, midi_fail, midi_fail_total;
+static double midi_fail_since, midi_fail_logged, midi_last_ok;
+static unsigned long midi_bytes;
+
+static void trail_dump(const char *why)
+{
+	fprintf(stderr, "azbridge: MIDI out trail (%s), last %d writes, oldest first:\n", why, TRAIL_N);
+	for (unsigned i = 0; i < TRAIL_N; i++) {
+		unsigned k = (trail_at + i) % TRAIL_N;
+		if (!trail[k].n)
+			continue;
+		fprintf(stderr, "  %.3f", trail[k].t);
+		for (int j = 0; j < trail[k].n; j++)
+			fprintf(stderr, " %02X", trail[k].b[j]);
+		fputc('\n', stderr);
+	}
+}
+
+static ssize_t midi_write(snd_rawmidi_t *out, const void *buf, size_t n)
+{
+	double t = now();
+	const uint8_t *p = buf;
+	ssize_t r = snd_rawmidi_write(out, buf, n);
+	size_t done = r > 0 ? (size_t)r : 0;
+	// remember what was handed over (a long write as its first 3 bytes)
+	trail[trail_at].t = t;
+	trail[trail_at].n = n < 3 ? (uint8_t)n : 3;
+	memcpy(trail[trail_at].b, p, trail[trail_at].n);
+	trail_at = (trail_at + 1) % TRAIL_N;
+	if (done == n) {
+		midi_bytes += done;
+		if (midi_fail) {
+			fprintf(stderr, "azbridge: MIDI out accepting data again after %.1f s (%u writes failed)\n",
+				t - midi_fail_since, midi_fail);
+			midi_fail = 0;
+		}
+		midi_last_ok = t;
+		return r;
+	}
+	midi_bytes += done;
+	midi_fail_total++;
+	if (!midi_fail++) {
+		midi_fail_since = t;
+		midi_fail_logged = t;
+		fprintf(stderr, "azbridge: MIDI out STALLED at %.3f: wrote %zd of %zu (%s), %lu bytes written so far,"
+			" last full write %.1f s ago\n", t, r, n, r < 0 ? snd_strerror((int)r) : "short",
+			midi_bytes, midi_last_ok ? t - midi_last_ok : -1.0);
+		trail_dump("first failure");
+	} else if (t - midi_fail_logged >= 10) {
+		midi_fail_logged = t;
+		fprintf(stderr, "azbridge: MIDI out still stalled: %.1f s, %u writes failed\n",
+			t - midi_fail_since, midi_fail);
+	}
+	return r;
+}
+
 // CH LEVEL meters: CC 2 on the deck channel, a level ramp (0x26..0x40 green,
 // ..0x56 green 2, ..0x64 orange, ..0x76 orange 2, 0x77.. red; measured on
 // the unit, also in rekordbox's GRV6 table), from azmix's
@@ -874,7 +940,7 @@ static void meters_send(snd_rawmidi_t *out)
 			}
 		if (v != meter_sent[ch]) {
 			uint8_t msg[3] = { 0xB0 + ch, 0x02, v };
-			snd_rawmidi_write(out, msg, 3);
+			midi_write(out, msg, 3);
 			meter_sent[ch] = v;
 		}
 	}
@@ -898,7 +964,7 @@ static void leds_send(snd_rawmidi_t *out, int all)
 		msg[n++] = led_on[i] ? 0x7F : 0;
 	}
 	if (n)
-		snd_rawmidi_write(out, msg, n);
+		midi_write(out, msg, n);
 }
 
 // TX frames as last seen, to log only the bytes that change.
@@ -1179,7 +1245,7 @@ static void jogind_send(snd_rawmidi_t *out, double dt, int all)
 				1 + (int)((rev - floor(rev)) * JOGIND_STEPS) % JOGIND_STEPS : 0;
 			if (v != jogind_sent[d] || all) {
 				uint8_t msg[3] = { 0xBF, d, v };
-				snd_rawmidi_write(out, msg, 3);
+				midi_write(out, msg, 3);
 				jogind_sent[d] = v;
 			}
 			continue;
@@ -1193,7 +1259,7 @@ static void jogind_send(snd_rawmidi_t *out, double dt, int all)
 		int v = ch_state[d] ? 1 + (int)(jog_rev[d] * JOGIND_STEPS) % JOGIND_STEPS : 0;
 		if (v != jogind_sent[d] || all) {
 			uint8_t msg[3] = { 0xBF, d, v };
-			snd_rawmidi_write(out, msg, 3);
+			midi_write(out, msg, 3);
 			jogind_sent[d] = v;
 		}
 	}
@@ -1211,7 +1277,7 @@ static void bfxind_send(snd_rawmidi_t *out, int all)
 	if (cur->decks < 4 || (!all && bfxind_sent == v))
 		return;
 	uint8_t msg[3] = { 0xB4, 0x64, v };
-	snd_rawmidi_write(out, msg, 3);
+	midi_write(out, msg, 3);
 	bfxind_sent = v;
 }
 
@@ -1251,6 +1317,46 @@ static void counter_add(int dev, int at, int d)
 	n += d;
 	frame[dev][at] = n & 0xFF, frame[dev][at + 1] = (uint16_t)n >> 8;
 	dirty[dev] = 1;
+}
+
+// BEAT FX driven from the screen (aztouch). These are the same state changes the
+// controller's BEAT FX buttons make; the X-PAD is the mixer's bytes 28 (bit 0
+// touch) and 29 (position), which the player draws on its BEAT FX panel.
+#define MC_XPAD	28
+static void bfx_touch_cmd(const char *text)
+{
+	char cmd[16] = "";
+	int v = 0;
+	if (text[0] == 'x') {
+		unsigned t = 0, pos = 0;
+		if (sscanf(text + 1, "%u %u", &t, &pos) < 1)
+			return;
+		if (pos > 255)
+			pos = 255;
+		uint8_t *f = frame[DEV_MC];
+		uint8_t b28 = (f[MC_XPAD] & ~1) | (t ? 1 : 0);
+		if (f[MC_XPAD] != b28 || f[MC_XPAD + 1] != (t ? pos : f[MC_XPAD + 1])) {
+			f[MC_XPAD] = b28;
+			if (t)
+				f[MC_XPAD + 1] = pos;
+			dirty[DEV_MC] = 1;
+		}
+		return;
+	}
+	if (sscanf(text + 1, " %15s %d", cmd, &v) < 1)
+		return;
+	if (!strcmp(cmd, "on"))
+		led_on[L_BEATFX] ^= 1;
+	else if (!strcmp(cmd, "next"))
+		bfx_type = (bfx_type + 1) % BFX_TYPES;
+	else if (!strcmp(cmd, "prev"))
+		bfx_type = (bfx_type + BFX_TYPES - 1) % BFX_TYPES;
+	else if (!strcmp(cmd, "type") && v >= 0 && v < BFX_TYPES)
+		bfx_type = v;
+	else if (!strcmp(cmd, "beat+") && bfx_beat + 1 < NBEATS)
+		bfx_beat++;
+	else if (!strcmp(cmd, "beat-") && bfx_beat > 0)
+		bfx_beat--;
 }
 
 static void apply(const struct ctl *c, int value, int on)
@@ -1600,9 +1706,9 @@ int main(int argc, char **argv)
 				fprintf(stderr, "azbridge: controller %s open\n", midi_dev);
 				// it answers with the position of every knob and fader
 				if (cur->query)
-					snd_rawmidi_write(midi_out, cur->query, sizeof(flx4_query));
+					midi_write(midi_out, cur->query, sizeof(flx4_query));
 				if (cur->init)
-					snd_rawmidi_write(midi_out, cur->init, cur->init_n);
+					midi_write(midi_out, cur->init, cur->init_n);
 				lever_since = now(), lever_trust = 0;
 				// The FLX4 leaves MIC LEVEL out of its answer: until the
 				// knob moves, azmix gets it at 0 dB (its +20 dB top is
@@ -1706,6 +1812,12 @@ int main(int argc, char **argv)
 				go_home();
 				text[0] = 0;
 			}
+			// On-screen BEAT FX (aztouch zones): "f on|next|prev|beat+|beat-|type N",
+			// and the X-PAD, "x TOUCH POS" (POS 0..255).
+			if (text[0] == 'f' || text[0] == 'x') {
+				bfx_touch_cmd(text);
+				text[0] = 0;
+			}
 			unsigned sbit;
 			if (text[0] == 'b' && sscanf(text + 1, "%x %x %x %x", &sd, &sb, &sbit, &sv) == 4 &&
 			    sd < NDEV && sb < devs[sd].crc_at && sbit < 8) {
@@ -1731,7 +1843,7 @@ int main(int argc, char **argv)
 					raw[nraw++] = (uint8_t)b;
 			}
 			if (nraw && midi_out)
-				snd_rawmidi_write(midi_out, raw, nraw);
+				midi_write(midi_out, raw, nraw);
 		}
 
 		t = now();
@@ -1765,7 +1877,7 @@ int main(int argc, char **argv)
 		}
 		if (midi_out && cur->keepalive && (keepalive_opt || !cur->keepalive_opt) &&
 		    t >= next_keepalive) {
-			snd_rawmidi_write(midi_out, cur->keepalive, cur->keepalive_n);
+			midi_write(midi_out, cur->keepalive, cur->keepalive_n);
 			next_keepalive = t + KEEPALIVE_MS / 1000.0;
 		}
 		for (int i = 0; i < nconn; i++)
