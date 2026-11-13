@@ -1704,6 +1704,20 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 			slip_toggle(ch);
 		return;
 	}
+	// DDJ-400 SHIFT + PLAY (note 0x47 of the deck, nothing in the published map but censor):
+	// the AZ's VINYL SPEED ADJUST button of that deck (ErP D+4 bit 0), held as long as the key.
+	// The AZ's SHIFT bit is cleared while it is down (SHIFT + the button would be another function
+	// there) and comes back on the release.
+	if (cfx_own && (type == 0x90 || type == 0x80) && ch < 2 && d1 == 0x47) {
+		if (on)
+			for (int s = 0; s < 2; s++)
+				set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, 0);
+		set_bit(DEV_ERP, (SIDE(ch) ? 16 : 8) + 4, 0, on);
+		if (!on)
+			for (int s = 0; s < 2; s++)
+				set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, shift_held[0] || shift_held[1]);
+		return;
+	}
 	if (st == 0x96 && d1 == cur->return_note) {	// SHIFT + SMART FADER / BACK
 		return_since = on ? now() : 0;
 		if (cur->map == flx4)		// the GRV6's is PLAYLIST too (table)
