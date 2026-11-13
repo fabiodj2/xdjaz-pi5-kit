@@ -15,10 +15,14 @@
 #   X x0 y0 x1 y1 [v]         the X-PAD: the finger's position along the zone is sent
 #                             as 0..255 while it touches (v: vertical, bottom 0, top 255)
 #
-# Examples (replace the numbers):
-# B 700 120 800 170 on
-# B 600 120 690 170 prev
-# B 810 120 900 170 next
-# B 600 260 690 310 beat-
-# B 810 260 900 310 beat+
-# X 600 360 900 420
+# Measured and working on the 7" 1024x600 panel with AZ_SCREEN=1024x600 AZ_SCALE8=6 (the
+# player's 1280x800 layout drawn at 0.75, its window 31 px from the left edge). The BEAT FX
+# panel sits at 1090..1270 x 90..435 in the 1280x800 layout; convert with
+#   x = 31 + 0.7508 * x1280      y = 0.75 * y1280
+# For another size, scale the same way.
+B 849 68 984 88 on         # the "BEAT FX" title
+B 849 124 917 159 prev     # left half of the effect's name
+B 917 124 984 159 next     # right half
+B 849 164 894 197 beat-    # the beat box on the left (3/4 in the layout)
+B 940 164 984 197 beat+    # the one on the right
+X 849 262 984 306          # the X-PAD PARAMETER strip (1/16 ... 1)
