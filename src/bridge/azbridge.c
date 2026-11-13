@@ -806,6 +806,8 @@ enum { G_CORE = 1, G_LOOP = 2, G_EXTRA = 4, G_MODES = 8, G_PADS = 16, G_MIXER = 
 static unsigned led_groups = ~0u;
 
 static int meter_ms = 40;	// AZ_METER_MS: gap between level meter updates
+static int meter_step = 1;	// AZ_METER_STEP: a meter value is sent only if it moved this much (or to 0)
+static int led_ms_over;		// AZ_LED_MS: gap between the full LED refreshes (0: the controller's)
 
 static void led_groups_init(void)
 {
@@ -813,6 +815,16 @@ static void led_groups_init(void)
 	if (m && atoi(m) >= 10) {
 		meter_ms = atoi(m);
 		fprintf(stderr, "azbridge: AZ_METER_MS=%d\n", meter_ms);
+	}
+	const char *st = getenv("AZ_METER_STEP");
+	if (st && atoi(st) >= 1) {
+		meter_step = atoi(st);
+		fprintf(stderr, "azbridge: AZ_METER_STEP=%d\n", meter_step);
+	}
+	const char *lm = getenv("AZ_LED_MS");
+	if (lm && atoi(lm) >= 100) {
+		led_ms_over = atoi(lm);
+		fprintf(stderr, "azbridge: AZ_LED_MS=%d\n", led_ms_over);
 	}
 	const char *e = getenv("AZ_LEDS");
 	if (!e)
@@ -1009,7 +1021,7 @@ static void meters_send(snd_rawmidi_t *out)
 				v = meter_db[k - 1].v + (int)(a * (meter_db[k].v - meter_db[k - 1].v));
 				break;
 			}
-		if (v != meter_sent[ch]) {
+		if (v != meter_sent[ch] && (meter_sent[ch] < 0 || !v || abs(v - meter_sent[ch]) >= meter_step)) {
 			uint8_t msg[3] = { 0xB0 + ch, 0x02, v };
 			midi_write(out, msg, 3);
 			meter_sent[ch] = v;
@@ -1355,12 +1367,13 @@ static void bfxind_send(snd_rawmidi_t *out, int all)
 // The virtual X-PAD (aztouch's X zone over the panel's X-PAD PARAMETER strip). Parameter
 // BEAT: the finger's position picks the beat, six steps 1/16 1/8 1/4 1/2 3/4 1 (the beats
 // BEAT < > step through have no 1/16, so the first step is 1/8). While it touches, the
-// beat FX is on at that beat; the lift puts the FX on/off and the beat back as they were
-// (momentary, taken from the AZ's own X-PAD; not checked on the unit). A touch that
+// beat FX is on at that beat (for the player and the mixer only: nothing is written to the
+// controller, its BEAT FX LED stays as the ON button left it); the lift puts the beat
+// back (momentary, taken from the AZ's own X-PAD; not checked on the unit). A touch that
 // lasts XPAD_MAX_S without news is let go, in case aztouch went away.
 #define XPAD_MAX_S	30
 static const uint8_t xpad_step_beat[6] = { 0, 0, 1, 2, 3, 4 };	// into bfx_beats[]
-static int xpad_down, xpad_saved_on, xpad_saved_beat;
+static int xpad_down, xpad_saved_beat;
 static double xpad_at;
 
 static void xpad_release(void)
@@ -1368,7 +1381,6 @@ static void xpad_release(void)
 	if (!xpad_down)
 		return;
 	xpad_down = 0;
-	led_on[L_BEATFX] = xpad_saved_on;
 	bfx_beat = xpad_saved_beat;
 	frame[DEV_MC][28] &= ~1;
 	dirty[DEV_MC] = 1;
@@ -1386,7 +1398,7 @@ static void bfx_report(void)
 	int ms = (int)(bfx_beats[bfx_beat].beats * 60000 / (bpm > 0 ? bpm : 120) + .5);
 	int bpm10 = (int)(bpm * 10 + .5);
 	uint8_t want[8] = {
-		led_on[L_BEATFX] ? 0x80 : 0, (uint8_t)(bfx_type << 4 | (f[85] & 0x0F)),
+		led_on[L_BEATFX] || xpad_down ? 0x80 : 0, (uint8_t)(bfx_type << 4 | (f[85] & 0x0F)),
 		bfx_beats[bfx_beat].index, f[87], bpm10 & 0xFF, bpm10 >> 8, ms & 0xFF, ms >> 8,
 	};
 	uint8_t ch = bfx_ch >= 0 ? bfx_ch : 0xFF;
@@ -1435,11 +1447,9 @@ static void bfx_touch_cmd(const char *text)
 		}
 		if (!xpad_down) {
 			xpad_down = 1;
-			xpad_saved_on = led_on[L_BEATFX];
 			xpad_saved_beat = bfx_beat;
 		}
 		xpad_at = now();
-		led_on[L_BEATFX] = 1;
 		bfx_beat = xpad_step_beat[pos * 6 / 256];
 		f[MC_XPAD] |= 1;
 		f[MC_XPAD + 1] = pos;
@@ -1965,7 +1975,7 @@ int main(int argc, char **argv)
 		if (midi_out && !no_out) {
 			int all = t >= next_led;
 			if (all)
-				next_led = t + (cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
+				next_led = t + (led_ms_over ? led_ms_over : cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
 			leds_send(midi_out, all);
 			if (t >= next_meter) {
 				next_meter = t + meter_ms / 1000.0;

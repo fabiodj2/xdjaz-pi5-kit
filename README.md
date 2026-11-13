@@ -110,8 +110,9 @@ not touched.
   measure them. A touch in a zone never reaches the player. The virtual X-PAD is the
   panel's X-PAD PARAMETER strip (BEAT, 1/16 .. 1): while a finger is on it the beat
   FX is on at the beat under the finger (1/16 is taken as 1/8, which the effects
-  have), and the lift puts the effect on/off and the beat back as they were. That
-  momentary behaviour is from the AZ's own X-PAD and not checked on the unit.
+  have), and the lift puts the beat back. Nothing is written to the controller for it
+  (its BEAT FX LED stays as the ON button left it). That momentary behaviour is from the
+  AZ's own X-PAD and not checked on the unit.
 - **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
   The track preview (touch preview in the browser) plays in the headphones
