@@ -99,6 +99,9 @@ not touched.
 - **Beat FX.** All 14 of the player's effects, beat, level, channel. On a
   channel the effect comes after the fader: pull the fader and the echo's tail
   stays. The GRV6's eight beat lamps show the chosen beat.
+- **MIXER SETTINGS.** SHIFT + the CUE of channel 1 (the headphone CUE, note 0x68 on the
+  DDJ-400 and the FLX4, taken from the DDJ-400's published map) is the AZ's MIXER SETTINGS
+  button, which opens that screen.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns

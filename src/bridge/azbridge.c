@@ -355,6 +355,7 @@ static const struct ctl flx4[] = {
 	{ 0xB6, 0x0C, FADER14, DEV_MC, 76, 80, 6 },	// HEADPHONES MIX
 	{ 0xB6, 0x0D, FADER14, DEV_MC, 77, 80, 4 },	// HEADPHONES LEVEL
 	{ 0x96, 0x63, BUTTON, DEV_MC, 21, 6 },		// MASTER CUE
+	{ 0x90, 0x68, BUTTON, DEV_MC, 24, 4 },		// SHIFT + CUE (channel 1): MIXER SETTINGS
 	{ 0x96, 0x00, CFX_PRESS },			// SMART CFX
 	{ 0x96, 0x08, CFX_NEXT },			// SHIFT + SMART CFX
 	// Beat FX: the FLX4 sends its section on channel 4 and/or 5 (one leg per
