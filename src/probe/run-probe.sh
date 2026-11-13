@@ -90,7 +90,15 @@ if [ "${AZMODS:-1}" != 0 ] && [ -r /opt/xdjaz/azmod/azmod.so ]; then
   # (1280x800 scaled to the screen) would have it; ours is smaller and off to the
   # side, so it never matched and the Mod Menu shut at once. Its test switch skips
   # that check (the menu still closes on the screen buttons and source picks).
-  MODBIND="$MODBIND --setenv AZMOD_FORCE_SOURCE 1"
+  # With the drop-down/fixed bar (azdrop) the SOURCE test follows the view that is really
+  # open: azdrop makes the flag file while it is (azshim.c, getenv). AZMOD_ALWAYS=1, or no
+  # bar, keeps it forced on, the mods' entry then shows on every screen.
+  if drop_on && [ "${AZMOD_ALWAYS:-0}" != 1 ]; then
+    rm -f "$STATE/tmp/azmod-source"
+    MODBIND="$MODBIND --setenv AZMOD_SOURCE_FLAG /tmp/azmod-source"
+  else
+    MODBIND="$MODBIND --setenv AZMOD_FORCE_SOURCE 1"
+  fi
 fi
 
 # OneLibrary key for azshim's sqlite3_key hook (user-supplied, kept outside the tree)

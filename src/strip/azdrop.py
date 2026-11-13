@@ -233,6 +233,25 @@ def give_focus_back():
 			 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+SOURCE_FLAG = STATE + "/tmp/azmod-source"	# the player's /tmp/azmod-source
+_source_on = [None]
+
+
+def source_flag(on):
+	"""AZ-MODS' SOURCE test (azshim.c getenv): the flag file is there while SOURCE is open."""
+	on = bool(on)
+	if _source_on[0] == on:
+		return
+	_source_on[0] = on
+	try:
+		if on:
+			open(SOURCE_FLAG, "w").close()
+		elif os.path.exists(SOURCE_FLAG):
+			os.remove(SOURCE_FLAG)
+	except OSError:
+		pass
+
+
 def main():
 	global TILE_W, TILE_H
 	preview = "--preview" in sys.argv
@@ -379,6 +398,7 @@ def main():
 					state["mask"] = int(line[2:])
 				except ValueError:
 					pass
+		source_flag(state["mask"] > 0 and state["mask"] & 1 << VIEWS.index("SOURCE"))
 		show()
 
 	root.tk.createfilehandler(fd, tk.READABLE, on_fifo)

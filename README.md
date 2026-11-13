@@ -106,7 +106,7 @@ not touched.
   U-Boot environment of the AZ's flash (`fw_printenv -n release`). On the Pi that lookup failed
   (no flash, no `/var/lock`), so `run-probe.sh` points `fw_env.config` at a file it makes at
   each start (`mkubootenv.py`) with `release=` the content of `src/deploy/VERSION`
-  (`1.30-D3.0`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
+  (`1.30-D3.1`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
   The kit's number: the first one goes up with a big change or a new feature (the second goes
   back to 0), the second with a bug fix. Only the first line of the file is read. The stock `fw_env.config` is kept as `fw_env.config.stock`.
   The **Serial No.** is `fw_printenv -n serial_number`, read from the same file: the Pi's own
@@ -307,6 +307,13 @@ Stems: turn Stems on in the menu and make the stems with their desktop app,
 which puts them on the stick in `STEMS/`. The mods' USB loader, their
 self-update and SSH are not used here; `setup-pi.sh` installs the mods, run it
 again with a newer archive to update.
+
+The mods find the SOURCE screen by pixels where a full-screen 1280x800 UI would have its title,
+which our window never matches, so the kit used to force the test on and the MOD MENU entry
+showed over BROWSE, TAG LIST and the other screens. Now `azshim` answers the mods' test
+(`getenv("AZMOD_FORCE_SOURCE")`) from a flag file that `azdrop` makes while the SOURCE view is
+really open (the browse LEDs, the same that light the bar's key). `AZMOD_ALWAYS=1` brings the old
+forced test back; without the bar (`DROP=0`) it stays forced.
 
 To run without the mods: `AZMODS=0` (see [Settings](#settings)).
 

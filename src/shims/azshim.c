@@ -124,6 +124,34 @@ static int event_open(const char *path, int flags)
 	return p[0];
 }
 
+// AZ-MODS' detect_source() asks getenv("AZMOD_FORCE_SOURCE") each time it checks (every 50 to
+// 150 ms) whether the SOURCE screen is up. Its own check reads pixels where a full-screen
+// 1280x800 UI would have the title, which our window never matches, so the kit used to set
+// the variable for good: the mods then thought SOURCE was always open and drew their entry over
+// BROWSE, TAG LIST ... When run-probe.sh sets AZMOD_SOURCE_FLAG (a file path) the answer is
+// instead "1" only while that file exists; azdrop makes it while the SOURCE view is open (azbridge
+// tells it from the browse LEDs). Nothing else changes: getenv reads environ itself.
+extern char **environ;
+
+static char *env_find(const char *name)
+{
+	size_t n = strlen(name);
+	for (char **e = environ; e && *e; e++)
+		if (strncmp(*e, name, n) == 0 && (*e)[n] == '=')
+			return *e + n + 1;
+	return NULL;
+}
+
+char *getenv(const char *name)
+{
+	if (name && strcmp(name, "AZMOD_FORCE_SOURCE") == 0) {
+		char *flag = env_find("AZMOD_SOURCE_FLAG");
+		if (flag)
+			return syscall(SYS_faccessat, AT_FDCWD, flag, F_OK) == 0 ? (char *)"1" : NULL;
+	}
+	return name ? env_find(name) : NULL;
+}
+
 // AZ_OPEN_LOG=file: every open the player makes is appended there (path, flags, result,
 // errno), to find what a screen reads that the Pi does not have. Off when unset.
 static int open_log_fd = -2;
