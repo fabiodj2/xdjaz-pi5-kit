@@ -106,7 +106,7 @@ not touched.
   U-Boot environment of the AZ's flash (`fw_printenv -n release`). On the Pi that lookup failed
   (no flash, no `/var/lock`), so `run-probe.sh` points `fw_env.config` at a file it makes at
   each start (`mkubootenv.py`) with `release=` the content of `src/deploy/VERSION`
-  (`1.30-D4.1`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
+  (`1.30-D4.2`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
   The kit's number: the first one goes up with a big change or a new feature (the second goes
   back to 0), the second with a bug fix. Only the first line of the file is read. The stock `fw_env.config` is kept as `fw_env.config.stock`.
   The **Serial No.** is `fw_printenv -n serial_number`, read from the same file: the Pi's own
@@ -321,8 +321,9 @@ forced test back; without the bar (`DROP=0`) it stays forced.
 
 The small "AZ MODS" window the mods put over the MOD MENU row of the SOURCE screen is placed as
 if the player filled a 1280x800 screen, so with our window it lands off the row, over the icon
-above it. `azdrop` hides it: every 60 ms it unmaps a mapped, nearly square top-level window of
-60 to 84 pixels (`AZMODS_ICON_MIN` / `AZMODS_ICON_MAX`) and logs it in `azdrop.log`. The MOD MENU
+above it. `azdrop` hides it: it asks the X server for the map and resize events of top-level
+windows and unmaps a nearly square one of 60 to 84 pixels (`AZMODS_ICON_MIN` / `AZMODS_ICON_MAX`)
+within a millisecond of its showing (a 250 ms poll is the safety net), and logs it in `azdrop.log`. The MOD MENU
 row is the player's own and stays. `AZMODS_ICON=1` keeps the icon.
 
 To run without the mods: `AZMODS=0` (see [Settings](#settings)).

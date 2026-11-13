@@ -239,7 +239,8 @@ def give_focus_back():
 # over the MOD MENU row. It places it as if the player filled a 1280x800 screen, and ours does
 # not (the bar, the scale), so it lands off the row, over the icon above it. AZMODS_ICON=1 keeps it;
 # otherwise any mapped, nearly square window of ICON_MIN..ICON_MAX pixels that is a child of the root
-# (the X server here has no window manager) is unmapped, a 60 ms poll through Xlib.
+# (the X server here has no window manager) is unmapped: at once, on the server's map and resize
+# events, with a 250 ms poll as a safety net (Xlib through ctypes).
 # The MOD MENU row itself is the player's own and stays.
 HIDE_ICON = os.environ.get("AZMODS_ICON", "0") != "1"
 ICON_MIN, ICON_MAX = int(os.environ.get("AZMODS_ICON_MIN", "60")), int(os.environ.get("AZMODS_ICON_MAX", "84"))
@@ -276,6 +277,49 @@ class IconHider:
 		self.dpy = ctypes.c_void_p(self.dpy)
 		self.root = self.x.XDefaultRootWindow(self.dpy)
 		self.seen = set()
+		# the server tells us each map and resize of a top-level window (SubstructureNotify):
+		# the icon is unmapped within a millisecond of showing, long before a poll would
+		self.x.XSelectInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_long]
+		self.x.XPending.argtypes = [ctypes.c_void_p]
+		self.x.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+		self.x.XConnectionNumber.argtypes = [ctypes.c_void_p]
+		self.x.XSelectInput(self.dpy, self.root, 1 << 19)
+		self.x.XFlush(self.dpy)
+		self.fd = self.x.XConnectionNumber(self.dpy)
+		self.ev = ctypes.create_string_buffer(192)
+
+	def match(self, w, width, height):
+		return (ICON_MIN <= width <= ICON_MAX and ICON_MIN <= height <= ICON_MAX
+			and abs(width - height) <= 4)
+
+	def hide(self, w, a):
+		self.x.XUnmapWindow(self.dpy, w)
+		self.x.XFlush(self.dpy)
+		if w not in self.seen:
+			self.seen.add(w)
+			print("azdrop: hid window %#x %dx%d+%d+%d (the AZ-MODS icon)" % (w, a[2], a[3], a[0], a[1]), flush=True)
+
+	def pump(self, own):
+		"""Handles the map and resize events waiting (MapNotify 19, ConfigureNotify 22)."""
+		while self.x.XPending(self.dpy):
+			self.x.XNextEvent(self.dpy, self.ev)
+			typ = ctypes.c_int.from_buffer(self.ev, 0).value
+			if typ == 22:			# the window's new size comes with the event
+				w = ctypes.c_ulong.from_buffer(self.ev, 40).value
+				if w in own:
+					continue
+				ex, ey, ew, eh = (ctypes.c_int.from_buffer(self.ev, o).value for o in (48, 52, 56, 60))
+				if self.match(w, ew, eh):
+					a = XWindowAttributes()
+					if self.x.XGetWindowAttributes(self.dpy, w, ctypes.byref(a)) and a.map_state == 2:
+						self.hide(w, (ex, ey, ew, eh))
+			elif typ == 19:			# just mapped: ask its size
+				w = ctypes.c_ulong.from_buffer(self.ev, 40).value
+				if w in own:
+					continue
+				a = XWindowAttributes()
+				if self.x.XGetWindowAttributes(self.dpy, w, ctypes.byref(a)) and self.match(w, a.width, a.height):
+					self.hide(w, (a.x, a.y, a.width, a.height))
 
 	def scan(self, own):
 		"""Unmaps the icon window(s); `own` are our own windows' ids (never touched)."""
@@ -296,13 +340,10 @@ class IconHider:
 					continue
 				if a.map_state != 2:
 					continue
-				if not (ICON_MIN <= a.width <= ICON_MAX and ICON_MIN <= a.height <= ICON_MAX and abs(a.width - a.height) <= 4):
+				if not self.match(w, a.width, a.height):
 					continue
-				self.x.XUnmapWindow(self.dpy, w)
+				self.hide(w, (a.x, a.y, a.width, a.height))
 				hit = True
-				if w not in self.seen:
-					self.seen.add(w)
-					print("azdrop: hid window %#x %dx%d+%d+%d (the AZ-MODS icon)" % (w, a.width, a.height, a.x, a.y), flush=True)
 		finally:
 			if kids:
 				self.x.XFree(kids)
@@ -504,11 +545,12 @@ def main():
 				pass
 			return ids
 
-		def watch():
+		def watch():		# the safety net: a map that was missed (events are the quick path)
 			if hider:
 				hider.scan(own_windows())
-			root.after(60, watch)
+			root.after(250, watch)
 		if hider:
+			root.tk.createfilehandler(hider.fd, tk.READABLE, lambda *_: hider.pump(own_windows()))
 			watch()
 	root.mainloop()
 
