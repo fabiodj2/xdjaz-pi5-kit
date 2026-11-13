@@ -132,7 +132,7 @@ def draw_label(im, label, size, ink, glow):
 def render_key(label, lit, pressed):
 	w, h = TILE_W * SS, TILE_H * SS
 	m = max(2, int(3 * SCALE)) * SS
-	r = min((h - 2 * m) // 3, 11 * SS)
+	r = min((h - 2 * m) // (4 if FIXED else 3), (8 if FIXED else 11) * SS)
 	im = Image.new("RGB", (w, h), PLATE)
 	d = ImageDraw.Draw(im)
 	d.rounded_rectangle((m, m, w - m - 1, h - m - 1), r, fill=KEY_EDGE)
@@ -144,7 +144,7 @@ def render_key(label, lit, pressed):
 	if not pressed:
 		d.line((x0 + r, y0 + SS // 2, x1 - r, y0 + SS // 2), fill=HIGHLIGHT, width=SS)
 	on = lit or pressed
-	draw_label(im, label, int(h * 0.30), BLUE if on else WHITE, on)
+	draw_label(im, label, int(h * (0.42 if FIXED else 0.30)), BLUE if on else WHITE, on)
 	return im.resize((TILE_W, TILE_H), Image.LANCZOS)
 
 

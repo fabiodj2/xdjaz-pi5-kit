@@ -118,8 +118,10 @@ not touched.
   the bar to a picture.
   **Fixed bar:** `AZ_TOPBAR=40` replaces the tab with a bar of that many pixels across the top of
   the screen, always there, and puts the player's window right under it. On the 7" panel the screen
-  is 1024x640 and the bar's 40 pixels leave exactly the 600 the player draws at `AZ_SCALE8=6`
-  (960x600, a strip of 32 px on each side): `AZ_SCREEN=1024x640`, `AZ_SCALE8=6`, `AZ_TOPBAR=40`.
+  is 1024x640. A 28 px bar (keys and letters in proportion to the player's own header) leaves
+  612 px, which the player fills at `AZ_SCALE8=6.12` (979x612, a strip of 22 px on each side):
+  `AZ_SCREEN=1024x640`, `AZ_SCALE8=6.12`, `AZ_TOPBAR=28`. (A 40 px bar with `AZ_SCALE8=6` gives the
+  exact 0.75, 960x600.)
   The BEAT FX zones move with the window (`src/touch/bfx.zones.example`).
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.

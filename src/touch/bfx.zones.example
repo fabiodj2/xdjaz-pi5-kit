@@ -44,3 +44,12 @@ X 849 262 984 306          # the X-PAD PARAMETER strip (1/16 ... 1)
 # B 850 204 895 237 beat-
 # B 940 204 985 237 beat+
 # X 850 303 985 346
+
+# Or, the bar of 28 px (AZ_TOPBAR=28, AZ_SCALE8=6.12: the player at 0.765, 979x612 under it,
+# 22 px from the left: x = 22 + 0.765 * x1280, y = 28 + 0.765 * y1280):
+# B 856 97 994 118 on
+# B 856 154 925 190 prev
+# B 925 154 994 190 next
+# B 856 195 902 228 beat-
+# B 948 195 994 228 beat+
+# X 856 296 994 340
