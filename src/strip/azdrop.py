@@ -23,6 +23,7 @@
 # of that height across the top of the screen instead of the tab, no drop-down; run-probe.sh
 # AZ_TOPBAR puts the player's window under it).
 
+import ctypes
 import os
 import subprocess
 import sys
@@ -233,6 +234,82 @@ def give_focus_back():
 			 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+# ---- the AZ-MODS icon ---------------------------------------------------------------------
+# On the SOURCE screen AZ-MODS puts a small "AZ MODS" window (a square of about 72 px, no frame)
+# over the MOD MENU row. It places it as if the player filled a 1280x800 screen, and ours does
+# not (the bar, the scale), so it lands off the row, over the icon above it. AZMODS_ICON=1 keeps it;
+# otherwise any mapped, nearly square window of ICON_MIN..ICON_MAX pixels that is a child of the root
+# (the X server here has no window manager) is unmapped, a 60 ms poll through Xlib.
+# The MOD MENU row itself is the player's own and stays.
+HIDE_ICON = os.environ.get("AZMODS_ICON", "0") != "1"
+ICON_MIN, ICON_MAX = int(os.environ.get("AZMODS_ICON_MIN", "60")), int(os.environ.get("AZMODS_ICON_MAX", "84"))
+
+
+class XWindowAttributes(ctypes.Structure):
+	_fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("width", ctypes.c_int), ("height", ctypes.c_int),
+		    ("border_width", ctypes.c_int), ("depth", ctypes.c_int), ("visual", ctypes.c_void_p),
+		    ("root", ctypes.c_ulong), ("cls", ctypes.c_int), ("bit_gravity", ctypes.c_int),
+		    ("win_gravity", ctypes.c_int), ("backing_store", ctypes.c_int),
+		    ("backing_planes", ctypes.c_ulong), ("backing_pixel", ctypes.c_ulong),
+		    ("save_under", ctypes.c_int), ("colormap", ctypes.c_ulong), ("map_installed", ctypes.c_int),
+		    ("map_state", ctypes.c_int), ("all_event_masks", ctypes.c_long),
+		    ("your_event_mask", ctypes.c_long), ("do_not_propagate_mask", ctypes.c_long),
+		    ("override_redirect", ctypes.c_int), ("screen", ctypes.c_void_p)]
+
+
+class IconHider:
+	def __init__(self):
+		self.x = ctypes.CDLL("libX11.so.6")
+		self.x.XOpenDisplay.restype = ctypes.c_void_p
+		self.x.XDefaultRootWindow.restype = ctypes.c_ulong
+		self.x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+		self.x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+					      ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+					      ctypes.POINTER(ctypes.c_uint)]
+		self.x.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(XWindowAttributes)]
+		self.x.XUnmapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+		self.x.XFree.argtypes = [ctypes.c_void_p]
+		self.x.XFlush.argtypes = [ctypes.c_void_p]
+		self.dpy = self.x.XOpenDisplay(None)
+		if not self.dpy:
+			raise OSError("no display")
+		self.dpy = ctypes.c_void_p(self.dpy)
+		self.root = self.x.XDefaultRootWindow(self.dpy)
+		self.seen = set()
+
+	def scan(self, own):
+		"""Unmaps the icon window(s); `own` are our own windows' ids (never touched)."""
+		root, parent = ctypes.c_ulong(), ctypes.c_ulong()
+		kids = ctypes.POINTER(ctypes.c_ulong)()
+		n = ctypes.c_uint()
+		if not self.x.XQueryTree(self.dpy, self.root, ctypes.byref(root), ctypes.byref(parent),
+					 ctypes.byref(kids), ctypes.byref(n)):
+			return
+		hit = False
+		try:
+			for i in range(n.value):
+				w = kids[i]
+				if w in own:
+					continue
+				a = XWindowAttributes()
+				if not self.x.XGetWindowAttributes(self.dpy, w, ctypes.byref(a)):
+					continue
+				if a.map_state != 2:
+					continue
+				if not (ICON_MIN <= a.width <= ICON_MAX and ICON_MIN <= a.height <= ICON_MAX and abs(a.width - a.height) <= 4):
+					continue
+				self.x.XUnmapWindow(self.dpy, w)
+				hit = True
+				if w not in self.seen:
+					self.seen.add(w)
+					print("azdrop: hid window %#x %dx%d+%d+%d (the AZ-MODS icon)" % (w, a.width, a.height, a.x, a.y), flush=True)
+		finally:
+			if kids:
+				self.x.XFree(kids)
+		if hit:
+			self.x.XFlush(self.dpy)
+
+
 SOURCE_FLAG = STATE + "/tmp/azmod-source"	# the player's /tmp/azmod-source
 _source_on = [None]
 
@@ -409,6 +486,30 @@ def main():
 			bar.lift()
 		root.after(2000, keep_on_top)
 	keep_on_top()
+	if HIDE_ICON:
+		try:
+			hider = IconHider()
+		except (OSError, AttributeError) as e:
+			print("azdrop: the AZ-MODS icon is not hidden (%s)" % e, flush=True)
+			hider = None
+
+		def own_windows():
+			ids = {root.winfo_id()}
+			if not FIXED:
+				ids.add(bar.winfo_id())
+			ids.add(bar_canvas.winfo_id())
+			try:		# Tk's toplevel ids are children of a wrapper in some setups
+				ids.add(int(root.wm_frame(), 16))
+			except (ValueError, tk.TclError):
+				pass
+			return ids
+
+		def watch():
+			if hider:
+				hider.scan(own_windows())
+			root.after(60, watch)
+		if hider:
+			watch()
 	root.mainloop()
 
 

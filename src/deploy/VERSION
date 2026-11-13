@@ -1,3 +1,3 @@
-1.30-D4.0
+1.30-D4.1
 # Format: <player firmware>-D<A>.<B>  (read from the first line only: run-probe.sh -> release)
 # A: a big change or a new feature (B goes back to 0).  B: a bug fix.
