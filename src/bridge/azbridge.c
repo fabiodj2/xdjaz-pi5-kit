@@ -794,6 +794,47 @@ static void layers_tick(void)
 	}
 }
 
+// LED groups, to find which messages hang a controller (AZ_LEDS=core,loop,... lists the
+// groups that are sent; unset: all). core = PLAY, CUE, SYNC, headphone CUE (the
+// DDJ-400's own LED notes); loop = LOOP IN/OUT; extra = SLIP, QUANT, KEY SYNC, MASTER TEMPO
+// (notes the DDJ-400's map does not list); modes = the pad mode buttons; pads = the 8 pads;
+// mixer = MASTER CUE, BEAT FX ON, SMART CFX; vu = the channel meters.
+enum { G_CORE = 1, G_LOOP = 2, G_EXTRA = 4, G_MODES = 8, G_PADS = 16, G_MIXER = 32, G_VU = 64 };
+static unsigned led_groups = ~0u;
+
+static void led_groups_init(void)
+{
+	const char *e = getenv("AZ_LEDS");
+	if (!e)
+		return;
+	led_groups = 0;
+	if (strstr(e, "all")) led_groups = ~0u;
+	if (strstr(e, "core")) led_groups |= G_CORE;
+	if (strstr(e, "loop")) led_groups |= G_LOOP;
+	if (strstr(e, "extra")) led_groups |= G_EXTRA;
+	if (strstr(e, "modes")) led_groups |= G_MODES;
+	if (strstr(e, "pads")) led_groups |= G_PADS;
+	if (strstr(e, "mixer")) led_groups |= G_MIXER;
+	if (strstr(e, "vu")) led_groups |= G_VU;
+	fprintf(stderr, "azbridge: AZ_LEDS=%s (groups %#x)\n", e, led_groups);
+}
+
+static unsigned led_group(int i)
+{
+	if (i >= L_HPCUE1 && i <= L_HPCUE4)
+		return G_CORE;
+	if (i >= L_MASTERCUE)
+		return G_MIXER;
+	int k = i % L_DECK;
+	if (k == L_PLAY || k == L_CUE || k == L_SYNC)
+		return G_CORE;
+	if (k == L_LOOPIN || k == L_LOOPOUT)
+		return G_LOOP;
+	if (k < L_MODE0)
+		return G_EXTRA;
+	return k < L_PAD0 ? G_MODES : G_PADS;
+}
+
 // CH LEVEL meters: CC 2 on the deck channel, a level ramp (0x26..0x40 green,
 // ..0x56 green 2, ..0x64 orange, ..0x76 orange 2, 0x77.. red; measured on
 // the unit, also in rekordbox's GRV6 table), from azmix's
@@ -806,6 +847,8 @@ static int meter_sent[4] = { -1, -1, -1, -1 };
 
 static void meters_send(snd_rawmidi_t *out)
 {
+	if (!(led_groups & G_VU))
+		return;
 	if (!meter) {
 		int fd = open(METER_SHM, O_RDONLY | O_CLOEXEC);
 		if (fd < 0)
@@ -842,6 +885,8 @@ static void leds_send(snd_rawmidi_t *out, int all)
 	uint8_t msg[3 * NLED];
 	int n = 0;
 	for (int i = 0; i < NLED; i++) {
+		if (!(led_groups & led_group(i)))
+			continue;
 		if (!all && led_on[i] == led_sent[i])
 			continue;
 		struct led a = led_addr(i);
@@ -1518,6 +1563,7 @@ int main(int argc, char **argv)
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
 	init_frames();
+	led_groups_init();
 	mc_shm_open();
 
 	struct sockaddr_un a = { .sun_family = AF_UNIX };

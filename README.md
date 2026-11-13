@@ -229,11 +229,15 @@ mods then draw outside the smaller window).
 `xrandr` call no longer found it (`newmode=0 addmode=1` in the journal). `~/testmode.sh`-style
 checks by hand are `xrandr --newmode`, `--addmode`, `--output --mode`, one call each.
 
-The DDJ-400 is bus powered. On the unit used here it hung (still enumerated, no USB error,
-the Pi at `throttled=0x0`) with the LEDs on and the master volume turned up, and only a
-power cycle (pulling the cable) brought it back; with `AZBRIDGE_OPTS=-n` (no LEDs, no VU)
-it was stable. Pulling its power from a self-powered hub, a short thick cable, or fewer
-other USB devices on the Pi are the things to try; a software USB reset does not help.
+The DDJ-400 hung on the unit used here (still enumerated, no USB error, the Pi at
+`throttled=0x0`) with the LEDs on, and only a power cycle (pulling the cable) brought it back;
+with `AZBRIDGE_OPTS=-n` (no LEDs, no VU) it was stable. It was first blamed on power, but a
+meter on the port read 5.01 V and a steady 400 mA while it hung, so it is not power: it is
+something in what the bridge writes to the controller. `AZ_LEDS` lists the groups that are
+sent (`core,loop,extra,modes,pads,mixer,vu`; unset = all) to find the one that does it:
+`core` is PLAY, CUE, SYNC and headphone CUE (the DDJ-400's own LED notes), `loop` LOOP IN/OUT,
+`extra` SLIP/QUANT/KEY SYNC/MASTER TEMPO and `mixer` MASTER CUE/BEAT FX/SMART CFX (notes its
+map does not list), `modes` the pad mode buttons, `pads` the 8 pads, `vu` the channel meters.
 
 ## AZ-MODS
 
