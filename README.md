@@ -116,6 +116,11 @@ not touched.
   when idle and lit blue (with a soft glow) while its view is open, darker when pressed.
   `DROP_STYLE=tiles` brings back the flat tiles with an icon; `azdrop.py --preview OUT.png` draws
   the bar to a picture.
+  **Fixed bar:** `AZ_TOPBAR=40` replaces the tab with a bar of that many pixels across the top of
+  the screen, always there, and puts the player's window right under it. On the 7" panel the screen
+  is 1024x640 and the bar's 40 pixels leave exactly the 600 the player draws at `AZ_SCALE8=6`
+  (960x600, a strip of 32 px on each side): `AZ_SCREEN=1024x640`, `AZ_SCALE8=6`, `AZ_TOPBAR=40`.
+  The BEAT FX zones move with the window (`src/touch/bfx.zones.example`).
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns

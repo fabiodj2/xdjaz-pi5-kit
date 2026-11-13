@@ -19,7 +19,9 @@
 #   azdrop.py --preview OUT   the bar as a picture (no X needed)
 #
 # Environment: STATE (default /opt/xdjaz/state), DROP_RETRACT (seconds, 8;
-# 0 = never), DROP_SCALE (tile size factor, default 1).
+# 0 = never), DROP_SCALE (tile size factor, default 1), DROP_BAR (a height in pixels: a fixed bar
+# of that height across the top of the screen instead of the tab, no drop-down; run-probe.sh
+# AZ_TOPBAR puts the player's window under it).
 
 import os
 import subprocess
@@ -41,6 +43,8 @@ RETRACT_S = float(os.environ.get("DROP_RETRACT", "8"))
 # DROP_STYLE=keys (default): dark bevelled keys with the label only, as the buttons above the
 # AZ's screen (white, blue when lit). DROP_STYLE=tiles: the flat tiles with an icon.
 STYLE = os.environ.get("DROP_STYLE", "keys")
+BAR_H = int(os.environ.get("DROP_BAR", "0"))
+FIXED = BAR_H > 0
 SEP = 0 if STYLE == "keys" else 3
 BAR_FULL = 9 * 150 + 8 * SEP	# the bar at scale 1, for 9 buttons
 
@@ -230,47 +234,61 @@ def give_focus_back():
 
 
 def main():
+	global TILE_W, TILE_H
 	preview = "--preview" in sys.argv
 	root = None if preview else tk.Tk()
-	sw, sh = (1920, 1080) if preview else (root.winfo_screenwidth(), root.winfo_screenheight())
-	if "DROP_SCALE" not in os.environ:	# the bar must fit the screen (a 1024 px panel)
+	sw, sh = (1024 if FIXED else 1920, 640 if FIXED else 1080) if preview else (root.winfo_screenwidth(), root.winfo_screenheight())
+	if FIXED:				# the keys share the width, the bar's height is the keys'
+		apply_scale(BAR_H / 62.0)
+		TILE_W, TILE_H = sw // len(BUTTONS), BAR_H
+	elif "DROP_SCALE" not in os.environ:	# the bar must fit the screen (a 1024 px panel)
 		apply_scale(min(1.0, (sw - 16) / BAR_FULL))
 	icons = [safe_icon(p, c) for (_, p, c, _, _) in BUTTONS]
 
 	if "--preview" in sys.argv:
 		n = len(BUTTONS)
-		out = Image.new("RGB", (n * (TILE_W + SEP), TAB_H + TILE_H + 4), PLATE if STYLE == "keys" else GAP)
-		out.paste(render_tab(True), ((out.width - TAB_W) // 2, 0))
+		top = 0 if FIXED else TAB_H + 4
+		out = Image.new("RGB", (n * (TILE_W + SEP), top + TILE_H), PLATE if STYLE == "keys" else GAP)
+		if not FIXED:
+			out.paste(render_tab(True), ((out.width - TAB_W) // 2, 0))
 		lit_demo = {"BROWSE", "TAG LIST", "PLAYLIST", "SEARCH"}	# as in a photo of the unit
 		for i, (b, ic) in enumerate(zip(BUTTONS, icons)):
 			out.paste(render_tile(b[0], ic, b[0] in lit_demo, b[0] == "HOME"),
-				  (i * (TILE_W + SEP), TAB_H + 4))
+				  (i * (TILE_W + SEP), top))
 		out.save(sys.argv[sys.argv.index("--preview") + 1])
 		return
 
-	root.overrideredirect(True)
-	root.geometry("%dx%d+%d+0" % (TAB_W, TAB_H, (sw - TAB_W) // 2))
-	root.configure(bg="black")
-	tab_canvas = tk.Canvas(root, width=TAB_W, height=TAB_H, bg="black", highlightthickness=0)
-	tab_canvas.pack()
-	tab_imgs = []
-	for open_ in (0, 1):
-		f = "%s/tab_%d.png" % (azstrip.CACHE, open_)
-		os.makedirs(azstrip.CACHE, exist_ok=True)
-		render_tab(open_).save(f)
-		tab_imgs.append(tk.PhotoImage(file=f))
-	tab_item = tab_canvas.create_image(0, 0, image=tab_imgs[0], anchor="nw")
-
 	n = len(BUTTONS)
 	bar_w = n * TILE_W + (n - 1) * SEP
-	bar = tk.Toplevel(root)
-	bar.overrideredirect(True)
-	bar.geometry("%dx%d+%d+%d" % (bar_w, TILE_H, (sw - bar_w) // 2, TAB_H))
 	plate = "#%02x%02x%02x" % PLATE if STYLE == "keys" else "black"
-	bar.configure(bg=plate)
-	bar_canvas = tk.Canvas(bar, width=bar_w, height=TILE_H, bg=plate, highlightthickness=0)
-	bar_canvas.pack()
-	bar.withdraw()
+	if FIXED:				# the bar itself, always there, at the top edge
+		root.overrideredirect(True)
+		root.geometry("%dx%d+%d+0" % (bar_w, TILE_H, (sw - bar_w) // 2))
+		root.configure(bg=plate)
+		bar_canvas = tk.Canvas(root, width=bar_w, height=TILE_H, bg=plate, highlightthickness=0)
+		bar_canvas.pack()
+		bar = root
+	else:
+		root.overrideredirect(True)
+		root.geometry("%dx%d+%d+0" % (TAB_W, TAB_H, (sw - TAB_W) // 2))
+		root.configure(bg="black")
+		tab_canvas = tk.Canvas(root, width=TAB_W, height=TAB_H, bg="black", highlightthickness=0)
+		tab_canvas.pack()
+		tab_imgs = []
+		for open_ in (0, 1):
+			f = "%s/tab_%d.png" % (azstrip.CACHE, open_)
+			os.makedirs(azstrip.CACHE, exist_ok=True)
+			render_tab(open_).save(f)
+			tab_imgs.append(tk.PhotoImage(file=f))
+		tab_item = tab_canvas.create_image(0, 0, image=tab_imgs[0], anchor="nw")
+
+		bar = tk.Toplevel(root)
+		bar.overrideredirect(True)
+		bar.geometry("%dx%d+%d+%d" % (bar_w, TILE_H, (sw - bar_w) // 2, TAB_H))
+		bar.configure(bg=plate)
+		bar_canvas = tk.Canvas(bar, width=bar_w, height=TILE_H, bg=plate, highlightthickness=0)
+		bar_canvas.pack()
+		bar.withdraw()
 
 	tiles = []
 	for i, (b, ic) in enumerate(zip(BUTTONS, icons)):
@@ -304,6 +322,8 @@ def main():
 			state["timer"] = root.after(int(RETRACT_S * 1000), retract)
 
 	def set_open(v):
+		if FIXED:
+			return
 		state["open"] = v
 		tab_canvas.itemconfigure(tab_item, image=tab_imgs[1 if v else 0])
 		if v:
@@ -314,7 +334,8 @@ def main():
 		arm()
 		give_focus_back()
 
-	tab_canvas.bind("<ButtonPress-1>", lambda e: set_open(not state["open"]))
+	if not FIXED:
+		tab_canvas.bind("<ButtonPress-1>", lambda e: set_open(not state["open"]))
 
 	def tile_at(x):
 		k = x // (TILE_W + SEP)

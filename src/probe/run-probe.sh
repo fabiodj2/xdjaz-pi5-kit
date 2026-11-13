@@ -393,6 +393,8 @@ place_window() {
       set -- $(DISPLAY=$DISP xdotool getdisplaygeometry)
       WG=$(DISPLAY=$DISP xdotool getwindowgeometry "$W" | awk '/Geometry/{print $2}')
       PX=$(( ($1 - ${WG%x*}) / 2 )); PY=$(( ($2 - ${WG#*x}) / 2 ))
+      # AZ_TOPBAR=H: a fixed bar of H pixels across the top (azdrop, DROP_BAR); the window goes under it
+      [ "${AZ_TOPBAR:-0}" -gt 0 ] 2>/dev/null && PY=$AZ_TOPBAR
       DISPLAY=$DISP xdotool windowmove "$W" $(( PX < 0 ? 0 : PX )) $(( PY < 0 ? 0 : PY ))
       # AZ_FIT=1: the player draws small (AZ_SCALE8=5: 800x500, the cheap size) and X
       # scales it up to fill the screen: the framebuffer is the window, the output shows
@@ -414,7 +416,7 @@ place_window() {
         --transform 1,0,0,0,1.066667,0,0,0,1 ;;
     esac
     drop_on && ! pgrep -f "strip/azdrop[.]py" >/dev/null &&
-      (cd /opt/xdjaz/strip && DISPLAY=$DISP setsid python3 azdrop.py \
+      (cd /opt/xdjaz/strip && DISPLAY=$DISP DROP_BAR=${AZ_TOPBAR:-0} setsid python3 azdrop.py \
         > /opt/xdjaz/strip/azdrop.log 2>&1 < /dev/null &)
     break
   fi
