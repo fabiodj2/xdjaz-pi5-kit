@@ -354,9 +354,6 @@ static const struct ctl flx4[] = {
 	{ 0xB6, 0x18, FADER14, DEV_MC, 62, 65, 4 },	// CFX ch2 -> COLOR ch2
 	{ 0xB6, 0x0C, FADER14, DEV_MC, 76, 80, 6 },	// HEADPHONES MIX
 	{ 0xB6, 0x0D, FADER14, DEV_MC, 77, 80, 4 },	// HEADPHONES LEVEL
-	// MASTER LEVEL: the DDJ-400's knob is MIDI (CC 8, 14 bit, seen as B6 08 / B6 28);
-	// the FLX4's is analog and sends nothing, so the row does nothing there.
-	{ 0xB6, 0x08, FADER14, DEV_MC, 56, 60, 6 },	// MASTER LEVEL
 	{ 0x96, 0x63, BUTTON, DEV_MC, 21, 6 },		// MASTER CUE
 	{ 0x96, 0x00, CFX_PRESS },			// SMART CFX
 	{ 0x96, 0x08, CFX_NEXT },			// SHIFT + SMART CFX
@@ -1665,6 +1662,14 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 	if (type == 0x80)
 		st = 0x90 | ch;		// note off
 	int fourdeck = cur->decks == 4;
+	// DDJ-400 BEAT FX CH SELECT: a three-position switch, one note per position (CH1 0x10, CH2
+	// 0x11, MASTER 0x14, on channel 4), the new position's note On when it slides in. It
+	// sets the beat FX target as the AZ's CH SELECT does: channel 1, channel 2, or the master.
+	if (cfx_own && st == 0x94 && (d1 == 0x10 || d1 == 0x11 || d1 == 0x14)) {
+		if (on)
+			bfx_ch = d1 == 0x10 ? 0 : d1 == 0x11 ? 1 : -1;
+		return;
+	}
 	if (!fourdeck && ((st == 0x94 && d1 == 0x10) || (st == 0x95 && d1 == 0x11))) {
 		if (!lever_trust && now() - lever_since > LEVER_QUERY_S) {
 			if (st != 0x94 || on == lever_a)

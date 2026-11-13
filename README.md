@@ -99,9 +99,8 @@ not touched.
 - **Beat FX.** All 14 of the player's effects, beat, level, channel. On a
   channel the effect comes after the fader: pull the fader and the echo's tail
   stays. The GRV6's eight beat lamps show the chosen beat.
-- **Master level.** The DDJ-400's MASTER LEVEL knob (a 14-bit MIDI CC) sets the
-  mixer's master level. The FLX4's is analog and the GRV6's works inside the unit,
-  so they send nothing. Until the knob first moves, the level is at full.
+- **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
+  AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns
   on or off (the AZ's own SLIP button, pressed for you). The unit tells a SYNC press only when
   it is let go, and says nothing at all for SHIFT + SYNC held, so a hold of the SYNC itself
