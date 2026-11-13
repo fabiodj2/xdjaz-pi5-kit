@@ -133,8 +133,14 @@ if [ "${XORG:-0}" = 1 ]; then
   elif [ "${PANEL:-juce}" = juce ]; then
     TOUCHZONES="-z 845,0,935,60,885,24 -z 940,0,1023,60,966,24"
   fi
+  # BEAT FX on the screen: zones in /opt/xdjaz/bfx.zones (aztouch.c, load_zones) press
+  # the beat FX through azbridge's FIFO. AZ_TOUCH_DEBUG=1 logs where each touch lands
+  # (aztouch.log), to measure the zones.
+  BFXTOUCH=""
+  [ -f /opt/xdjaz/bfx.zones ] && BFXTOUCH="-f $STATE/azbridge.in -c /opt/xdjaz/bfx.zones"
+  [ "${AZ_TOUCH_DEBUG:-0}" = 1 ] && BFXTOUCH="$BFXTOUCH -d"
   [ -x /opt/xdjaz/touch/aztouch ] && ! pgrep -x aztouch >/dev/null &&
-    sudo setsid /opt/xdjaz/touch/aztouch -S ${AZ_SCREEN:-1920x1080} \
+    sudo setsid /opt/xdjaz/touch/aztouch -S ${AZ_SCREEN:-1920x1080} $BFXTOUCH \
       > /opt/xdjaz/touch/aztouch.log 2>&1 < /dev/null &
   # AZ_SCREEN=1280x800 / 1024x600: a 16:9 screen lists neither. The X config gets the mode
   # as a Modeline + PreferredMode (as the original kit does for its panel), so X starts in it.
@@ -247,7 +253,7 @@ start_mix() {
 start_mix
 # the on-screen buttons (STRIP) press through its FIFO
 BRIDGE_FIFO=""
-{ strip_on || drop_on; } && case " ${AZBRIDGE_OPTS:-} " in *" -i "*) ;; *) BRIDGE_FIFO="-i $STATE/azbridge.in" ;; esac
+{ strip_on || drop_on || [ -f /opt/xdjaz/bfx.zones ]; } && case " ${AZBRIDGE_OPTS:-} " in *" -i "*) ;; *) BRIDGE_FIFO="-i $STATE/azbridge.in" ;; esac
 # ... and tells them the open view (its LEDs), to light its button
 { strip_on || drop_on; } && BRIDGE_FIFO="$BRIDGE_FIFO -L $STATE/azstrip.in"
 [ -x /opt/xdjaz/bridge/azbridge ] && ! pgrep -x azbridge >/dev/null &&

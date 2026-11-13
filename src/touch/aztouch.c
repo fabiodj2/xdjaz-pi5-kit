@@ -27,14 +27,16 @@
 // instead (back to the waveform screen).
 //
 //   aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [-f fifo] [-p fifo]
-//           [-b x0,y0,x1,y1,dev,byte,bit]... [/dev/input/eventN]
+//           [-b x0,y0,x1,y1,dev,byte,bit]... [-c zones.conf] [-d] [/dev/input/eventN]
 //     -S  the screen in pixels (zones are in screen pixels), default 1024x600
 //     -r  the touchscreen reports 180 degrees off (xorg's CalibrationMatrix
 //         turns it back), so zones are turned too
 //     -z  a zone, up to 8
 //     -f  azbridge's FIFO (its -i), for the buttons
 //     -p  the button overlay's FIFO (optional)
-//     -b  a button zone, up to 12
+//     -b  a button zone
+//     -c  BEAT FX zones from a file (B: a command, X: the X-PAD), see load_zones
+//     -d  log where each touch lands, in screen pixels (for measuring zones)
 //   default device: the first direct-touch one (a fixed path is not found
 //   again after a drop)
 //
@@ -63,7 +65,15 @@ static int nzones, scr_w = 1024, scr_h = 600, turned;
 static struct input_absinfo ax, ay;	// the device's X and Y axes
 static int snapping, snap_x, snap_y;	// device units
 
-static struct button { int x0, y0, x1, y1, dev, byte, bit; } buttons[12];
+// kind 0: a bit of a UCOM frame (azstrip's buttons); 1: a BEAT FX command sent as
+// "f CMD" on the touch down; 2: the X-PAD, "x 1 POS" while the finger is down and
+// moves, "x 0" on the lift (horizontal: left 0 .. right 255; vertical: bottom 0 ..
+// top 255).
+enum { B_BIT, B_CMD, B_XPAD };
+#define MAXBUTTONS	32
+static struct button { int x0, y0, x1, y1, dev, byte, bit, kind, vertical; char cmd[16]; } buttons[MAXBUTTONS];
+static int xpad_last = -1;
+static int debug_touch;
 static int nbuttons, held_button = -1;	// the button the finger is on
 static const char *bridge_fifo, *strip_fifo;
 
@@ -80,9 +90,40 @@ static void fifo_line(const char *path, const char *line)
 	close(fd);
 }
 
+// The X-PAD's position for a finger at screen x, y; sent when it changes.
+static void xpad_update(const struct button *b, int sx, int sy)
+{
+	int pos;
+	if (b->vertical)
+		pos = (b->y1 - sy) * 255 / (b->y1 - b->y0 > 0 ? b->y1 - b->y0 : 1);
+	else
+		pos = (sx - b->x0) * 255 / (b->x1 - b->x0 > 0 ? b->x1 - b->x0 : 1);
+	pos = pos < 0 ? 0 : pos > 255 ? 255 : pos;
+	if (pos == xpad_last)
+		return;
+	xpad_last = pos;
+	char line[32];
+	snprintf(line, sizeof(line), "x 1 %d\n", pos);
+	fifo_line(bridge_fifo, line);
+}
+
 static void press(int b, int down)
 {
 	char line[64];
+	if (buttons[b].kind == B_CMD) {
+		if (down) {
+			snprintf(line, sizeof(line), "f %s\n", buttons[b].cmd);
+			fifo_line(bridge_fifo, line);
+		}
+		return;
+	}
+	if (buttons[b].kind == B_XPAD) {
+		if (!down) {
+			xpad_last = -1;
+			fifo_line(bridge_fifo, "x 0\n");
+		}
+		return;
+	}
 	if (buttons[b].dev < 0) {	// HOME: azbridge's "h", on the press
 		if (down)
 			fifo_line(bridge_fifo, "h\n");
@@ -211,6 +252,9 @@ static void emit(int out, struct frame *f)
 		if (f->ev[i].type == EV_KEY && f->ev[i].code == BTN_TOUCH)
 			*(f->ev[i].value ? &down : &up) = 1;
 	int axes = ax.maximum > ax.minimum && ay.maximum > ay.minimum;
+	if (down && debug_touch && axes)
+		fprintf(stderr, "aztouch: touch at %d,%d\n", to_screen(f->x, &ax, scr_w),
+			to_screen(f->y, &ay, scr_h));
 	if (down && nbuttons && axes && held_button < 0) {
 		int sx = to_screen(f->x, &ax, scr_w), sy = to_screen(f->y, &ay, scr_h);
 		for (int b = 0; b < nbuttons; b++)
@@ -218,10 +262,15 @@ static void emit(int out, struct frame *f)
 			    sy >= buttons[b].y0 && sy <= buttons[b].y1) {
 				held_button = b;
 				press(b, 1);
+				if (buttons[b].kind == B_XPAD)
+					xpad_update(&buttons[b], sx, sy);
 				break;
 			}
 	}
 	if (held_button >= 0) {		// the whole touch is the button's
+		if (!up && axes && buttons[held_button].kind == B_XPAD)
+			xpad_update(&buttons[held_button], to_screen(f->x, &ax, scr_w),
+				    to_screen(f->y, &ay, scr_h));
 		if (up) {
 			press(held_button, 0);
 			held_button = -1;
@@ -297,20 +346,70 @@ static void release_all(int out)
 	emit(out, &f);
 }
 
+// Zones from a text file (-c), one per line, "#" starts a comment:
+//   B x0 y0 x1 y1 CMD      a BEAT FX command: on, next, prev, beat+, beat-, type=N
+//   X x0 y0 x1 y1 [v]      the X-PAD (v: vertical, bottom 0 .. top 255)
+// Coordinates are screen pixels.
+static void load_zones(const char *path)
+{
+	FILE *fp = fopen(path, "r");
+	if (!fp) {
+		fprintf(stderr, "aztouch: %s: %s\n", path, strerror(errno));
+		return;
+	}
+	char line[200];
+	int n = 0;
+	while (fgets(line, sizeof(line), fp)) {
+		char *hash = strchr(line, '#');
+		if (hash)
+			*hash = 0;
+		char kind, word[40] = "";
+		struct button b = { .dev = -2 };
+		int got = sscanf(line, " %c %d %d %d %d %39s", &kind, &b.x0, &b.y0, &b.x1, &b.y1, word);
+		if (got < 5 || nbuttons >= MAXBUTTONS)
+			continue;
+		if (kind == 'B' && got == 6) {
+			b.kind = B_CMD;
+			snprintf(b.cmd, sizeof(b.cmd), "%s", word);
+			char *eq = strchr(b.cmd, '=');	// type=N -> "type N"
+			if (eq)
+				*eq = ' ';
+		} else if (kind == 'X') {
+			b.kind = B_XPAD;
+			b.vertical = word[0] == 'v';
+		} else {
+			fprintf(stderr, "aztouch: %s: ignored: %s", path, line);
+			continue;
+		}
+		buttons[nbuttons++] = b;
+		n++;
+	}
+	fclose(fp);
+	fprintf(stderr, "aztouch: %d BEAT FX zones from %s\n", n, path);
+}
+
 int main(int argc, char **argv)
 {
 	char name[200] = "touchscreen";
 	int opt;
-	while ((opt = getopt(argc, argv, "S:rz:f:p:b:")) != -1) {
+	while ((opt = getopt(argc, argv, "S:rz:f:p:b:c:d")) != -1) {
 		struct zone *z = &zones[nzones];
 		struct button *b = &buttons[nbuttons];
 		if (opt == 'f' || opt == 'p') {
 			*(opt == 'f' ? &bridge_fifo : &strip_fifo) = optarg;
 			continue;
 		}
-		if (opt == 'b' && nbuttons < 12 && sscanf(optarg, "%d,%d,%d,%d,%d,%d,%d", &b->x0, &b->y0,
+		if (opt == 'b' && nbuttons < MAXBUTTONS && sscanf(optarg, "%d,%d,%d,%d,%d,%d,%d", &b->x0, &b->y0,
 							  &b->x1, &b->y1, &b->dev, &b->byte, &b->bit) == 7) {
 			nbuttons++;
+			continue;
+		}
+		if (opt == 'c') {
+			load_zones(optarg);
+			continue;
+		}
+		if (opt == 'd') {
+			debug_touch = 1;
 			continue;
 		}
 		if (opt == 'S' && sscanf(optarg, "%dx%d", &scr_w, &scr_h) == 2)
@@ -325,7 +424,7 @@ int main(int argc, char **argv)
 			continue;
 		}
 		fprintf(stderr, "usage: aztouch [-S WxH] [-r] [-z x0,y0,x1,y1,tx,ty]... [-f fifo] [-p fifo]\n"
-				"               [-b x0,y0,x1,y1,dev,byte,bit]... [device]\n");
+				"               [-b x0,y0,x1,y1,dev,byte,bit]... [-c zones.conf] [-d] [device]\n");
 		return 2;
 	}
 	const char *path = optind < argc ? argv[optind] : NULL;

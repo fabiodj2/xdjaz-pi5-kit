@@ -1,0 +1,24 @@
+# BEAT FX on the touch screen. Copy to /opt/xdjaz/bfx.zones (then restart xdjaz) once the
+# numbers fit your panel. Coordinates are screen pixels (1024x600 on the 7" panel).
+#
+# Measure them: set AZ_TOUCH_DEBUG=1 in local.conf, restart, open the BEAT FX panel and tap
+# each element; `grep "touch at" /opt/xdjaz/touch/aztouch.log | tail` lists where each
+# tap landed.
+#
+# A touch that comes down in a zone never reaches the player (it is the zone's alone),
+# so draw them only over the BEAT FX panel.
+#
+#   B x0 y0 x1 y1 COMMAND     on    the BEAT FX ON/OFF button
+#                             next  the next effect          prev  the previous one
+#                             beat+ the next beat (BEAT >)   beat- the previous (BEAT <)
+#                             type=N a given effect, N 0..13 (DELAY 0 ... MOBIUS 13)
+#   X x0 y0 x1 y1 [v]         the X-PAD: the finger's position along the zone is sent
+#                             as 0..255 while it touches (v: vertical, bottom 0, top 255)
+#
+# Examples (replace the numbers):
+# B 700 120 800 170 on
+# B 600 120 690 170 prev
+# B 810 120 900 170 next
+# B 600 260 690 310 beat-
+# B 810 260 900 310 beat+
+# X 600 360 900 420

@@ -102,6 +102,13 @@ not touched.
 - **Master level.** The DDJ-400's MASTER LEVEL knob (a 14-bit MIDI CC) sets the
   mixer's master level. The FLX4's is analog and the GRV6's works inside the unit,
   so they send nothing. Until the knob first moves, the level is at full.
+- **BEAT FX on the screen.** `aztouch` can press the beat FX from the panel: ON/OFF,
+  the effect (next / previous / a given one), the beat (BEAT < >) and the X-PAD
+  (a touch and a position along a strip, as the AZ's X-PAD sends them to the
+  player). The zones are drawn in `/opt/xdjaz/bfx.zones` (example and format:
+  `src/touch/bfx.zones.example`); `AZ_TOUCH_DEBUG=1` logs where each tap lands, to
+  measure them. A touch in a zone never reaches the player. The X-PAD's value
+  reaches the player (the panel shows it); the mixer's effects do not use it yet.
 - **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
   The track preview (touch preview in the browser) plays in the headphones
