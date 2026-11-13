@@ -102,6 +102,12 @@ not touched.
 - **MIXER SETTINGS.** SHIFT + the CUE of channel 1 (the headphone CUE, note 0x68 on the
   DDJ-400 and the FLX4, taken from the DDJ-400's published map) is the AZ's MIXER SETTINGS
   button, which opens that screen.
+- **Version No.** The player's information screen (MENU > General) reads it from the
+  U-Boot environment of the AZ's flash (`fw_printenv -n release`). On the Pi that lookup failed
+  (no flash, no `/var/lock`), so `run-probe.sh` points `fw_env.config` at a file it makes at
+  each start (`mkubootenv.py`) with `release=` the content of `src/deploy/VERSION`
+  (`1.30-D1.0`: the player's 1.30, then D and the kit's own number, raised with the improvements;
+  `AZ_RELEASE` overrides it). The stock `fw_env.config` is kept as `fw_env.config.stock`.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns

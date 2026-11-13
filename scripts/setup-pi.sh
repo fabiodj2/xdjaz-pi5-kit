@@ -99,6 +99,10 @@ install -m 644 "$SRC/probe/xorg-az.conf" "$OPT/xorg-az.conf"
 install -m 755 "$SRC/probe/dconf" "$OPT/dconf"
 install -m 755 "$SRC/deploy/xdjaz-prep.sh" "$OPT/xdjaz-prep.sh"
 install -m 755 "$SRC/deploy/xdjaz-usb.sh" "$OPT/xdjaz-usb.sh"
+# the information screen's Version No.: fw_printenv's environment as a file (run-probe.sh)
+install -d "$OPT/deploy"
+install -m 755 "$SRC/deploy/mkubootenv.py" "$OPT/deploy/mkubootenv.py"
+install -m 644 "$SRC/deploy/VERSION" "$OPT/VERSION"
 install -m 755 "$SRC/tools/midi.sh" "$SRC/tools/shot.py" "$OPT/tools/"
 # the on-screen buttons right of the player (STRIP, PANEL=juce)
 install -m 755 "$SRC/strip/azstrip.py" "$OPT/strip/azstrip.py"
