@@ -341,6 +341,9 @@ static float clip(float x) { return x > 1.f ? 1.f : x < -1.f ? -1.f : x; }
 
 // ---- mixer controls -----------------------------------------------------------
 
+// MC byte 102 (after the CRC, like the bridge's other private bytes): the COLOR FX the
+// bridge has picked, 0..5 (fx.h order) or 6 for none; 0xFF leaves it to the buttons.
+#define MC_CFX	102
 #define MC_SHM	"/run/xdjaz/azmix-mc"	// the bridge's mixer frame, 128 bytes
 #define NCH	4
 
@@ -378,6 +381,7 @@ struct controls {
 	int cue_button[NCH];
 	float xfader, master, hp_mix, hp_level;
 	int cfx_buttons;		// bit i = COLOR FX button i held
+	int cfx_abs;			// the bridge's own COLOR FX pick: 0..5 on, 6 off, 0xFF use the buttons
 	struct beatfx_params bfx;
 	int bfx_ch;			// beat FX target channel, -1 master
 	int bfx_mic;			// beat FX on the mic alone (bridge: SHIFT + lever)
@@ -405,6 +409,7 @@ static void read_controls(struct controls *c)
 		}
 		c->xfader = .5f, c->master = 1, c->hp_mix = 1, c->hp_level = 1;
 		c->cfx_buttons = 0;
+		c->cfx_abs = 0xFF;
 		c->bfx = (struct beatfx_params){ -1, 0, .5f, 0 };
 		c->bfx_ch = -1, c->bfx_mic = 0;
 		c->brake = 0;
@@ -433,6 +438,7 @@ static void read_controls(struct controls *c)
 	c->master = mc10(f, 56, 60, 6);
 	c->hp_mix = mc10(f, 76, 80, 6);
 	c->hp_level = mc10(f, 77, 80, 4);
+	c->cfx_abs = f[MC_CFX];
 	c->cfx_buttons = 0;
 	for (int i = 0; i < 6; i++)
 		c->cfx_buttons |= ((f[21] >> (5 - i)) & 1) << i;
@@ -792,9 +798,12 @@ int main(int argc, char **argv)
 			t_post[n] = fader_gain(ctl.fader[n], ctl.fader_curve) *
 				    (as == 1 ? xa : as == 2 ? xb : 1);
 		}
-		for (int i = 0; i < 6; i++)		// COLOR FX: a press picks or ends
-			if ((ctl.cfx_buttons & ~cfx_was) & (1 << i))
-				cfx_type = cfx_type == i ? -1 : i;
+		if (ctl.cfx_abs != 0xFF)		// the bridge says which one (DDJ-400 pads)
+			cfx_type = ctl.cfx_abs < 6 ? ctl.cfx_abs : -1;
+		else
+			for (int i = 0; i < 6; i++)	// COLOR FX: a press picks or ends
+				if ((ctl.cfx_buttons & ~cfx_was) & (1 << i))
+					cfx_type = cfx_type == i ? -1 : i;
 		cfx_was = ctl.cfx_buttons;
 		float g_master = ctl.master * ctl.master, g_hp = ctl.hp_level * ctl.hp_level;
 		// one beat FX state: on a lever move it carries on at the new target

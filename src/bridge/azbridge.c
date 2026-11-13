@@ -141,6 +141,7 @@ static void init_frames(void)
 	}
 	frame[DEV_MC][2] = 0x02, frame[DEV_MC][3] = 0x01;	// MPNL 1.02
 	frame[DEV_ERP][24] = 1;		// power switch on
+	frame[DEV_MC][102] = 0xFF;	// COLOR FX: left to the buttons (MC_CFX)
 	for (int d = DEV_DECK_R; d <= DEV_DECK_L; d += DEV_DECK_L - DEV_DECK_R) {
 		frame[d][12] = frame[d][13] = 0xFF;	// jog stopped
 		set_deck10(d, 16, 512);			// tempo at the centre
@@ -1109,6 +1110,18 @@ static void pulses_tick(void)
 // index i as its colour effect i (fx.h order: SPACE, DUB ECHO, SWEEP, NOISE,
 // CRUSH, FILTER). SMART CFX starts on FILTER.
 static int cfx_sel = 5;
+// DDJ-400: the bridge itself keeps the COLOR FX that is on (the controller has no such
+// button) in MC_CFX for azmix, and starts on FILTER, so its CHANNEL FILTER knobs (COLOR)
+// work at once. -1: none.
+#define MC_CFX	102
+static int cfx_cur = -1;
+
+static void cfx_pick(int e)	// e 0..5 (fx.h order), the same one again ends it
+{
+	cfx_cur = cfx_cur == e ? -1 : e;
+	frame[DEV_MC][MC_CFX] = cfx_cur < 0 ? 6 : cfx_cur;
+	dirty[DEV_MC] = 1;
+}
 
 // ---- Beat FX ------------------------------------------------------------------
 //
@@ -1782,6 +1795,10 @@ int main(int argc, char **argv)
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
 	init_frames();
+	if (!strcmp(cur->name, "ddj400")) {	// FILTER on from the start (see MC_CFX)
+		cfx_cur = 5;
+		frame[DEV_MC][MC_CFX] = 5;
+	}
 	led_groups_init();
 	mc_shm_open();
 
