@@ -106,7 +106,7 @@ not touched.
   U-Boot environment of the AZ's flash (`fw_printenv -n release`). On the Pi that lookup failed
   (no flash, no `/var/lock`), so `run-probe.sh` points `fw_env.config` at a file it makes at
   each start (`mkubootenv.py`) with `release=` the content of `src/deploy/VERSION`
-  (`1.30-D2.0`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
+  (`1.30-D3.0`: the player's 1.30, then D and the kit's own number; `AZ_RELEASE` overrides it).
   The kit's number: the first one goes up with a big change or a new feature (the second goes
   back to 0), the second with a bug fix. Only the first line of the file is read. The stock `fw_env.config` is kept as `fw_env.config.stock`.
   The **Serial No.** is `fw_printenv -n serial_number`, read from the same file: the Pi's own
