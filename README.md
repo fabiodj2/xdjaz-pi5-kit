@@ -102,6 +102,12 @@ not touched.
 - **Master level.** The DDJ-400's MASTER LEVEL knob (a 14-bit MIDI CC) sets the
   mixer's master level. The FLX4's is analog and the GRV6's works inside the unit,
   so they send nothing. Until the knob first moves, the level is at full.
+- **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns
+  on or off (the AZ's own SLIP button, pressed for you). The unit tells a SYNC press only when
+  it is let go, and says nothing at all for SHIFT + SYNC held, so a hold of the SYNC itself
+  cannot be told; the hold is the SHIFT's. SYNC alone, SYNC held (MASTER) and a quick
+  SHIFT + SYNC (TEMPO RANGE) are as before. While SLIP is on the deck's SYNC LED pulses once
+  a second (lit with a short dip when the deck is also synced). Both decks.
 - **SOUND COLOR FX on the DDJ-400.** The controller has no SOUND COLOR FX buttons, so the
   bridge keeps the choice: it starts on FILTER, and the two CHANNEL FILTER knobs are the
   channels' COLOR knobs. SHIFT + BEAT LOOP (the PAD FX1 mode, pad notes 0x10..0x17) turns

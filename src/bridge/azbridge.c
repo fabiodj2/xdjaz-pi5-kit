@@ -719,6 +719,8 @@ static int loop_adjusting(int side)
 	       (deck_flags[d] & (DECK_ADJUST_IN | DECK_ADJUST_OUT));
 }
 
+static uint8_t sync_raw[2];	// the player's BEAT SYNC LED per deck, before the SLIP pulse
+
 static void leds_from_erp(const uint8_t *buf, int n)
 {
 	if (n < ERP_BLOCK(1) + 56)
@@ -729,6 +731,7 @@ static void leds_from_erp(const uint8_t *buf, int n)
 		on[L_PLAY] = (b[3] & 3) >= 2;
 		on[L_CUE] = (b[3] >> 2 & 3) >= 2;
 		on[L_SYNC] = (b[1] >> 6 & 3) >= 2;
+		sync_raw[deck] = on[L_SYNC];
 		on[L_LOOPIN] = (b[2] >> 6 & 3) >= 2;
 		on[L_LOOPOUT] = (b[2] >> 4 & 3) >= 2;
 		on[L_SLIP] = (b[0] & 3) >= 2;
@@ -1145,6 +1148,22 @@ static void pad_fx_leds(void)	// over the pad LEDs the player's frame gave
 	}
 }
 
+// SLIP on a deck (the player's own state, read back from its TX frame): its BEAT SYNC LED
+// pulses, once a second. With the deck synced the LED stays lit but dips for a moment each
+// second, so SYNC and SLIP can be told apart and both show.
+#define SLIP_PULSE_S	1.0
+static void slip_leds(double t)
+{
+	if (!cfx_own)
+		return;
+	double ph = fmod(t, SLIP_PULSE_S) / SLIP_PULSE_S;
+	for (int deck = 0; deck < 2; deck++) {
+		uint8_t *on = led_on + deck * L_DECK;
+		if (on[L_SLIP])
+			on[L_SYNC] = sync_raw[deck] ? ph > .15 : ph < .5;
+	}
+}
+
 // ---- Beat FX ------------------------------------------------------------------
 //
 // On the AZ the beat FX live in the mixer's MCU, which reports their state to
@@ -1201,6 +1220,30 @@ static int lever_a, lever_b, bfx_ch = -1;
 // channel. Moves only: the lever's stream repeats its position.
 #define BFX_MIC	4
 static int shift_held[2];
+static double shift_at[2];		// when each side's SHIFT went down
+
+// DDJ-400: SHIFT held SLIP_HOLD_S and then SYNC toggles the deck's SLIP. The unit tells a
+// SYNC press only when it is let go and says nothing for SHIFT + SYNC held, so the hold
+// is the SHIFT's. The AZ's SLIP button is pressed with its SHIFT bit cleared (SHIFT +
+// SLIP is the vinyl/jog mode there), and the bit comes back a few ticks later.
+#define SLIP_HOLD_S	2.0
+#define SLIP_MASK_TICKS	8
+static int slip_mask_ticks;
+
+static void slip_toggle(int deck)
+{
+	for (int s = 0; s < 2; s++)
+		set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, 0);
+	pulse(DEV_ERP, (SIDE(deck) ? 16 : 8) + 0, 2);
+	slip_mask_ticks = SLIP_MASK_TICKS;
+}
+
+static void slip_mask_tick(void)
+{
+	if (slip_mask_ticks && !--slip_mask_ticks)
+		for (int s = 0; s < 2; s++)
+			set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, shift_held[0] || shift_held[1]);
+}
 // The FLX4 reports the lever ten times a second, but from ~100 ms after the
 // position query until the lever first moves that stream says the 0x95 0x11
 // side is off whatever the lever (seen with the lever at MASTER: the query's
@@ -1643,8 +1686,16 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 	// own side's notes; the player sees the bit and shifts the rest itself)
 	if (type == 0x90 && ch < cur->decks && d1 == 0x3F) {
 		shift_held[SIDE(ch)] = on;
+		if (on)
+			shift_at[SIDE(ch)] = now();
 		for (int s = 0; s < 2; s++)
 			set_bit(DEV_ERP, (s ? 16 : 8) + 1, 7, shift_held[0] || shift_held[1]);
+		return;
+	}
+	if (cfx_own && type == 0x90 && ch < 2 && d1 == 0x60 &&	// SHIFT + SYNC after a 2 s SHIFT: SLIP
+	    shift_held[SIDE(ch)] && now() - shift_at[SIDE(ch)] >= SLIP_HOLD_S) {
+		if (on)
+			slip_toggle(ch);
 		return;
 	}
 	if (st == 0x96 && d1 == cur->return_note) {	// SHIFT + SMART FADER / BACK
@@ -2025,6 +2076,7 @@ int main(int argc, char **argv)
 			jog_idle(&jogs[0]);
 			jog_idle(&jogs[1]);
 			pulses_tick();
+			slip_mask_tick();
 			return_check();
 			layers_tick();
 			bfx_report();
@@ -2034,6 +2086,7 @@ int main(int argc, char **argv)
 			if (all)
 				next_led = t + (led_ms_over ? led_ms_over : cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
 			pad_fx_leds();
+			slip_leds(t);
 			leds_send(midi_out, all);
 			if (t >= next_meter) {
 				next_meter = t + meter_ms / 1000.0;
