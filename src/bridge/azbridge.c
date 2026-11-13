@@ -1352,8 +1352,32 @@ static void bfxind_send(snd_rawmidi_t *out, int all)
 	bfxind_sent = v;
 }
 
+// The virtual X-PAD (aztouch's X zone over the panel's X-PAD PARAMETER strip). Parameter
+// BEAT: the finger's position picks the beat, six steps 1/16 1/8 1/4 1/2 3/4 1 (the beats
+// BEAT < > step through have no 1/16, so the first step is 1/8). While it touches, the
+// beat FX is on at that beat; the lift puts the FX on/off and the beat back as they were
+// (momentary, taken from the AZ's own X-PAD; not checked on the unit). A touch that
+// lasts XPAD_MAX_S without news is let go, in case aztouch went away.
+#define XPAD_MAX_S	30
+static const uint8_t xpad_step_beat[6] = { 0, 0, 1, 2, 3, 4 };	// into bfx_beats[]
+static int xpad_down, xpad_saved_on, xpad_saved_beat;
+static double xpad_at;
+
+static void xpad_release(void)
+{
+	if (!xpad_down)
+		return;
+	xpad_down = 0;
+	led_on[L_BEATFX] = xpad_saved_on;
+	bfx_beat = xpad_saved_beat;
+	frame[DEV_MC][28] &= ~1;
+	dirty[DEV_MC] = 1;
+}
+
 static void bfx_report(void)
 {
+	if (xpad_down && now() - xpad_at > XPAD_MAX_S)
+		xpad_release();
 	uint8_t *f = frame[DEV_MC];
 	int src = bfx_ch >= 0 && bfx_ch != BFX_MIC ? bfx_ch : master_deck;
 	double bpm = src >= 0 ? ch_bpm[src] : 0;
@@ -1405,13 +1429,21 @@ static void bfx_touch_cmd(const char *text)
 		if (pos > 255)
 			pos = 255;
 		uint8_t *f = frame[DEV_MC];
-		uint8_t b28 = (f[MC_XPAD] & ~1) | (t ? 1 : 0);
-		if (f[MC_XPAD] != b28 || f[MC_XPAD + 1] != (t ? pos : f[MC_XPAD + 1])) {
-			f[MC_XPAD] = b28;
-			if (t)
-				f[MC_XPAD + 1] = pos;
-			dirty[DEV_MC] = 1;
+		if (!t) {
+			xpad_release();
+			return;
 		}
+		if (!xpad_down) {
+			xpad_down = 1;
+			xpad_saved_on = led_on[L_BEATFX];
+			xpad_saved_beat = bfx_beat;
+		}
+		xpad_at = now();
+		led_on[L_BEATFX] = 1;
+		bfx_beat = xpad_step_beat[pos * 6 / 256];
+		f[MC_XPAD] |= 1;
+		f[MC_XPAD + 1] = pos;
+		dirty[DEV_MC] = 1;
 		return;
 	}
 	if (sscanf(text + 1, " %15s %d", cmd, &v) < 1)

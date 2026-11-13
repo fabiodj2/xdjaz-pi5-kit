@@ -107,8 +107,11 @@ not touched.
   (a touch and a position along a strip, as the AZ's X-PAD sends them to the
   player). The zones are drawn in `/opt/xdjaz/bfx.zones` (example and format:
   `src/touch/bfx.zones.example`); `AZ_TOUCH_DEBUG=1` logs where each tap lands, to
-  measure them. A touch in a zone never reaches the player. The X-PAD's value
-  reaches the player (the panel shows it); the mixer's effects do not use it yet.
+  measure them. A touch in a zone never reaches the player. The virtual X-PAD is the
+  panel's X-PAD PARAMETER strip (BEAT, 1/16 .. 1): while a finger is on it the beat
+  FX is on at the beat under the finger (1/16 is taken as 1/8, which the effects
+  have), and the lift puts the effect on/off and the beat back as they were. That
+  momentary behaviour is from the AZ's own X-PAD and not checked on the unit.
 - **Headphones.** FLX4: mixed by our mixer (its HEADPHONES MIX and LEVEL
   knobs). The GRV6 mixes its headphones itself and gets the CUE bus alone.
   The track preview (touch preview in the browser) plays in the headphones
