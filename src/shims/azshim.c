@@ -78,9 +78,6 @@ struct redirect {
 
 static const struct redirect redirects[] = {
 	{ "/proc/udev_", "/tmp/udev/udev_" },
-	// the serial number on the player's information screen is the "Serial" line of cpuinfo;
-	// run-probe.sh writes a copy with the kit's own (AZ_SERIAL)
-	{ "/proc/cpuinfo", "/tmp/cpuinfo" },
 };
 
 // Returns path, or buf filled with the redirected path.

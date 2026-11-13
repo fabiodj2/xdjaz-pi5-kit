@@ -49,10 +49,6 @@ for n in usb1 usb2 sd1 nfs usbctn1 usbg1; do : > "$STATE/tmp/udev/udev_$n"; done
 # What the deck's wlan-monitor.sh leaves when it finds no Wi-Fi module. The
 # player waits up to 20 s for the country code at start.
 printf XX > "$STATE/tmp/ccode"
-# The information screen's "Serial No." is the Serial line of /proc/cpuinfo (azshim.so
-# redirects it to /tmp/cpuinfo): the kit's own, AZ_SERIAL (default ddj400xdjaz), not the Pi's.
-awk -v sn="${AZ_SERIAL:-ddj400xdjaz}" '/^Serial[ \t]*:/ { print "Serial\t\t: " sn; seen = 1; next } { print } END { if (!seen) print "Serial\t\t: " sn }' \
-  /proc/cpuinfo > "$STATE/tmp/cpuinfo"
 printf 00:00:00:00:00:00 > "$STATE/tmp/mlan0Addr"
 # USB sticks, inserted and pulled while the player runs: xdjaz-usb.sh (root)
 # mounts them read-only under /run/xdjaz-media, the player's /media/usb, and

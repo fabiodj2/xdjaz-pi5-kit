@@ -102,9 +102,6 @@ not touched.
 - **MIXER SETTINGS.** SHIFT + the CUE of channel 1 (the headphone CUE, note 0x68 on the
   DDJ-400 and the FLX4, taken from the DDJ-400's published map) is the AZ's MIXER SETTINGS
   button, which opens that screen.
-- **Serial number.** The player's information screen reads "Serial No." from the Serial line of
-  `/proc/cpuinfo`; `azshim` gives it a copy (`/tmp/cpuinfo`, made at start) with the kit's own
-  serial, `ddj400xdjaz` (`AZ_SERIAL` sets another), instead of the Pi's.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns
