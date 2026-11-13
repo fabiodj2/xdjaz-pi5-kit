@@ -105,7 +105,8 @@ not touched.
 - **SOUND COLOR FX on the DDJ-400.** The controller has no SOUND COLOR FX buttons, so the
   bridge keeps the choice: it starts on FILTER, and the two CHANNEL FILTER knobs are the
   channels' COLOR knobs. SHIFT + BEAT LOOP (the PAD FX1 mode, pad notes 0x10..0x17) turns
-  pads 1..6 into the six effects, in the order of the AZ's buttons on its screen: SPACE,
+  pads 1..6 into the six effects (BEAT LOOP on its own is the usual BEAT LOOP; the effects
+  stay on the pads until another pad mode button is pressed), in the order of the AZ's buttons on its screen: SPACE,
   DUB ECHO, CRUSH, SWEEP on the top row, NOISE, FILTER on the bottom one (pads 7 and 8 do
   nothing there). The pad of the effect that is on is lit; pressing it again ends the
   effect, as the AZ's button does. The AZ's PARAMETER knob has no DDJ-400 control, and the

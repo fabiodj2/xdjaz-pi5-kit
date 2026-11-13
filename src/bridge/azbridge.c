@@ -1129,6 +1129,7 @@ static void cfx_pick(int e)	// e 0..5 (fx.h order), the same one again ends it
 // nothing there. Value: the effect's index in fx.h order.
 #define PAD_FX1	0x10
 static int cfx_own;		// the bridge keeps the COLOR FX (DDJ-400)
+static int fx_mode[2];		// the deck is in PAD FX1: SHIFT + BEAT LOOP pressed, no other mode since
 static const uint8_t cfx_pad[6] = { 0, 1, 4, 2, 3, 5 };
 
 static void pad_fx_leds(void)	// over the pad LEDs the player's frame gave
@@ -1136,7 +1137,7 @@ static void pad_fx_leds(void)	// over the pad LEDs the player's frame gave
 	if (!cfx_own)
 		return;
 	for (int deck = 0; deck < 2; deck++) {
-		if (pad_base[deck] != PAD_FX1)
+		if (!fx_mode[deck])
 			continue;
 		uint8_t *on = led_on + deck * L_DECK;
 		for (int k = 0; k < 8; k++)
@@ -1665,6 +1666,14 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 		for (int m = 0; m < 8; m++)
 			if (type == 0x90 && ch < cur->decks && d1 == flx4_mode_note[m])
 				leds_pad_mode(ch, 16 * m);
+		if (cfx_own && type == 0x90 && ch < 2) {	// PAD FX1 = SHIFT + BEAT LOOP only
+			if (d1 == flx4_mode_note[1])
+				fx_mode[ch] = shift_held[0] || shift_held[1];
+			else
+				for (int m = 0; m < 8; m++)
+					if (m != 1 && d1 == flx4_mode_note[m])
+						fx_mode[ch] = 0;
+		}
 	}
 	if (type != 0x80 && type != 0x90 && type != 0xB0)
 		return;
@@ -1707,7 +1716,7 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 			leds_pad_mode(deck, d1 & 0x70);
 		if (fourdeck && on)
 			layer_set(SIDE(deck), deck >> 1);
-		if (cfx_own && (ch & 1) && (d1 & 0x70) == PAD_FX1) {	// PAD FX1: COLOR FX
+		if (cfx_own && (ch & 1) && deck < 2 && fx_mode[deck] && (d1 & 0x70) == PAD_FX1) {	// PAD FX1: COLOR FX
 			if (on && (d1 & 7) < 6)
 				cfx_pick(cfx_pad[d1 & 7]);
 		} else {
