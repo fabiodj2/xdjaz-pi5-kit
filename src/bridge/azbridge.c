@@ -802,8 +802,15 @@ static void layers_tick(void)
 enum { G_CORE = 1, G_LOOP = 2, G_EXTRA = 4, G_MODES = 8, G_PADS = 16, G_MIXER = 32, G_VU = 64 };
 static unsigned led_groups = ~0u;
 
+static int meter_ms = 40;	// AZ_METER_MS: gap between level meter updates
+
 static void led_groups_init(void)
 {
+	const char *m = getenv("AZ_METER_MS");
+	if (m && atoi(m) >= 10) {
+		meter_ms = atoi(m);
+		fprintf(stderr, "azbridge: AZ_METER_MS=%d\n", meter_ms);
+	}
 	const char *e = getenv("AZ_LEDS");
 	if (!e)
 		return;
@@ -843,16 +850,39 @@ static unsigned led_group(int i)
 // TRAIL_N writes and, the first time one fails or comes up short, logs the failure
 // and dumps the trail (time, bytes), then logs again every 10 s while it lasts and
 // when it clears.
-#define TRAIL_N	128
+#define TRAIL_N	4096
+#define TRAIL_RAW 60
 static struct { double t; uint8_t n, b[3]; } trail[TRAIL_N];
 static unsigned trail_at, midi_fail, midi_fail_total;
 static double midi_fail_since, midi_fail_logged, midi_last_ok;
 static unsigned long midi_bytes;
 
+// Per second: writes, bytes, level meter messages (CC 2), the rest; then the last
+// TRAIL_RAW writes as they were.
 static void trail_dump(const char *why)
 {
-	fprintf(stderr, "azbridge: MIDI out trail (%s), last %d writes, oldest first:\n", why, TRAIL_N);
-	for (unsigned i = 0; i < TRAIL_N; i++) {
+	fprintf(stderr, "azbridge: MIDI out trail (%s), up to %d writes, per second:\n", why, TRAIL_N);
+	long sec = -1;
+	unsigned w = 0, bytes = 0, vu = 0;
+	for (unsigned i = 0; i <= TRAIL_N; i++) {
+		unsigned k = (trail_at + i) % TRAIL_N;
+		int end = i == TRAIL_N;
+		if (!end && !trail[k].n)
+			continue;
+		long sc = end ? -2 : (long)trail[k].t;
+		if (sc != sec) {
+			if (sec >= 0)
+				fprintf(stderr, "  t=%ld writes=%u bytes=%u meter=%u other=%u\n", sec, w, bytes, vu, w - vu);
+			sec = sc, w = bytes = vu = 0;
+		}
+		if (end)
+			break;
+		w++;
+		bytes += trail[k].n;
+		vu += trail[k].n == 3 && (trail[k].b[0] & 0xF0) == 0xB0 && trail[k].b[1] == 2;
+	}
+	fprintf(stderr, "azbridge: last %d writes, oldest first:\n", TRAIL_RAW);
+	for (unsigned i = TRAIL_N - TRAIL_RAW; i < TRAIL_N; i++) {
 		unsigned k = (trail_at + i) % TRAIL_N;
 		if (!trail[k].n)
 			continue;
@@ -863,10 +893,48 @@ static void trail_dump(const char *why)
 	}
 }
 
+// How much of the output buffer the controller has not taken yet. A controller that
+// drains it keeps this near zero; one that has hung lets it grow by the write rate.
+// Checked about once a second; logs (and dumps the trail once) when it stays over
+// QUEUE_WARN for QUEUE_S seconds, long before the buffer is full.
+#define QUEUE_WARN	512
+#define QUEUE_S		3
+static void midi_queue_check(snd_rawmidi_t *out, double t)
+{
+	static double next, over_since, logged;
+	static int dumped;
+	if (t < next)
+		return;
+	next = t + 1;
+	snd_rawmidi_status_t *st;
+	snd_rawmidi_params_t *pr;
+	snd_rawmidi_status_alloca(&st);
+	snd_rawmidi_params_alloca(&pr);
+	if (snd_rawmidi_status(out, st) < 0 || snd_rawmidi_params_current(out, pr) < 0)
+		return;
+	size_t queued = snd_rawmidi_params_get_buffer_size(pr) - snd_rawmidi_status_get_avail(st);
+	if (queued < QUEUE_WARN) {
+		if (over_since)
+			fprintf(stderr, "azbridge: MIDI out drained again (%zu bytes queued)\n", queued);
+		over_since = 0, dumped = 0;
+		return;
+	}
+	if (!over_since)
+		over_since = t;
+	if (t - over_since >= QUEUE_S && t - logged >= 10) {
+		logged = t;
+		fprintf(stderr, "azbridge: MIDI out NOT DRAINING: %zu bytes queued for %.0f s, %lu bytes written so far\n",
+			queued, t - over_since, midi_bytes);
+		if (!dumped++)
+			trail_dump("not draining");
+	}
+}
+
 static ssize_t midi_write(snd_rawmidi_t *out, const void *buf, size_t n)
 {
 	double t = now();
 	const uint8_t *p = buf;
+	midi_queue_check(out, t);
 	ssize_t r = snd_rawmidi_write(out, buf, n);
 	size_t done = r > 0 ? (size_t)r : 0;
 	// remember what was handed over (a long write as its first 3 bytes)
@@ -1865,7 +1933,7 @@ int main(int argc, char **argv)
 				next_led = t + (cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
 			leds_send(midi_out, all);
 			if (t >= next_meter) {
-				next_meter = t + METER_MS / 1000.0;
+				next_meter = t + meter_ms / 1000.0;
 				meters_send(midi_out);
 			}
 			static double jog_t;
