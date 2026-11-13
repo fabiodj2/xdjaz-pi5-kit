@@ -1123,6 +1123,27 @@ static void cfx_pick(int e)	// e 0..5 (fx.h order), the same one again ends it
 	dirty[DEV_MC] = 1;
 }
 
+// DDJ-400 PAD FX1 (SHIFT + BEAT LOOP: pad notes 0x10..0x17): pads 1..6 are the six COLOR
+// FX, in the order of the AZ's SOUND COLOR FX buttons on its screen (SPACE, DUB ECHO,
+// CRUSH, SWEEP / NOISE, FILTER); the pad of the one that is on is lit. Pads 7 and 8 do
+// nothing there. Value: the effect's index in fx.h order.
+#define PAD_FX1	0x10
+static int cfx_own;		// the bridge keeps the COLOR FX (DDJ-400)
+static const uint8_t cfx_pad[6] = { 0, 1, 4, 2, 3, 5 };
+
+static void pad_fx_leds(void)	// over the pad LEDs the player's frame gave
+{
+	if (!cfx_own)
+		return;
+	for (int deck = 0; deck < 2; deck++) {
+		if (pad_base[deck] != PAD_FX1)
+			continue;
+		uint8_t *on = led_on + deck * L_DECK;
+		for (int k = 0; k < 8; k++)
+			on[L_PAD0 + k] = k < 6 && cfx_cur >= 0 && cfx_pad[k] == cfx_cur;
+	}
+}
+
 // ---- Beat FX ------------------------------------------------------------------
 //
 // On the AZ the beat FX live in the mixer's MCU, which reports their state to
@@ -1686,7 +1707,12 @@ static void midi_message(uint8_t st, uint8_t d1, uint8_t d2)
 			leds_pad_mode(deck, d1 & 0x70);
 		if (fourdeck && on)
 			layer_set(SIDE(deck), deck >> 1);
-		set_bit(DEV_ERP, (SIDE(deck) ? 16 : 8) + 6, d1 & 7, on);
+		if (cfx_own && (ch & 1) && (d1 & 0x70) == PAD_FX1) {	// PAD FX1: COLOR FX
+			if (on && (d1 & 7) < 6)
+				cfx_pick(cfx_pad[d1 & 7]);
+		} else {
+			set_bit(DEV_ERP, (SIDE(deck) ? 16 : 8) + 6, d1 & 7, on);
+		}
 		matched = 1;
 	}
 	if (verbose && !matched)
@@ -1796,6 +1822,7 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 	init_frames();
 	if (!strcmp(cur->name, "ddj400")) {	// FILTER on from the start (see MC_CFX)
+		cfx_own = 1;
 		cfx_cur = 5;
 		frame[DEV_MC][MC_CFX] = 5;
 	}
@@ -1993,6 +2020,7 @@ int main(int argc, char **argv)
 			int all = t >= next_led;
 			if (all)
 				next_led = t + (led_ms_over ? led_ms_over : cur->led_ms ? cur->led_ms : LED_MS) / 1000.0;
+			pad_fx_leds();
 			leds_send(midi_out, all);
 			if (t >= next_meter) {
 				next_meter = t + meter_ms / 1000.0;

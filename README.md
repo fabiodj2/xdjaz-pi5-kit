@@ -102,6 +102,14 @@ not touched.
 - **Master level.** The DDJ-400's MASTER LEVEL knob (a 14-bit MIDI CC) sets the
   mixer's master level. The FLX4's is analog and the GRV6's works inside the unit,
   so they send nothing. Until the knob first moves, the level is at full.
+- **SOUND COLOR FX on the DDJ-400.** The controller has no SOUND COLOR FX buttons, so the
+  bridge keeps the choice: it starts on FILTER, and the two CHANNEL FILTER knobs are the
+  channels' COLOR knobs. SHIFT + BEAT LOOP (the PAD FX1 mode, pad notes 0x10..0x17) turns
+  pads 1..6 into the six effects, in the order of the AZ's buttons on its screen: SPACE,
+  DUB ECHO, CRUSH, SWEEP on the top row, NOISE, FILTER on the bottom one (pads 7 and 8 do
+  nothing there). The pad of the effect that is on is lit; pressing it again ends the
+  effect, as the AZ's button does. The AZ's PARAMETER knob has no DDJ-400 control, and the
+  mixer does not use its value.
 - **BEAT FX on the screen.** `aztouch` can press the beat FX from the panel: ON/OFF,
   the effect (next / previous / a given one), the beat (BEAT < >) and the X-PAD
   (a touch and a position along a strip, as the AZ's X-PAD sends them to the
