@@ -111,6 +111,11 @@ not touched.
   back to 0), the second with a bug fix. Only the first line of the file is read. The stock `fw_env.config` is kept as `fw_env.config.stock`.
   The **Serial No.** is `fw_printenv -n serial_number`, read from the same file: the Pi's own
   serial (the Serial line of `/proc/cpuinfo`), or `AZ_SERIAL` if set.
+- **The drop-down bar (azdrop).** The virtual HOME / SOURCE / BROWSE ... BACK keys are drawn as
+  the buttons above the AZ's screen: dark keys with a light top edge, the label alone, white
+  when idle and lit blue (with a soft glow) while its view is open, darker when pressed.
+  `DROP_STYLE=tiles` brings back the flat tiles with an icon; `azdrop.py --preview OUT.png` draws
+  the bar to a picture.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **SLIP on the DDJ-400.** Hold SHIFT for 2 seconds, then tap SYNC: the deck's SLIP turns
