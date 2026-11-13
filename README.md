@@ -237,7 +237,13 @@ With that the MOD MENU shows whole and the touch is aligned. Two decks play at 3
 Pi 4 (a smaller `AZ_SCALE8` gives more: 6 -> 37, 5 -> 60 with the screen at 1080p, but the
 mods then draw outside the smaller window).
 
-`AZ_SCREEN=1280x800` (or `1024x600`) is written into the X config as a `Modeline` plus
+To fill the panel instead (no side strips, nothing cropped), use the 1024x640 mode with the
+player at 0.8: `AZ_SCREEN=1024x640` and `AZ_SCALE8=6.4`. The panel squeezes the 640 lines
+into its 600 (about 6%), X does no scaling, and the touch stays aligned. The mods then draw
+for a 1280x800 screen and are cut at this size, as at `AZ_SCALE8=6`. The 1024x600 mode with
+`AZ_SCALE8=6` keeps the picture exact (961x600) and leaves a 31 px strip on each side.
+
+`AZ_SCREEN=1280x800`, `1024x640` or `1024x600` is written into the X config as a `Modeline` plus
 `PreferredMode`, because a mode made with `xrandr --newmode` at start did not hold: the next
 `xrandr` call no longer found it (`newmode=0 addmode=1` in the journal). `~/testmode.sh`-style
 checks by hand are `xrandr --newmode`, `--addmode`, `--output --mode`, one call each.
