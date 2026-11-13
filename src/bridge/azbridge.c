@@ -1836,6 +1836,10 @@ int main(int argc, char **argv)
 		frame[DEV_MC][MC_CFX] = 5;
 	}
 	led_groups_init();
+	if (cfx_own) {		// DDJ-400: the unit lights its pad mode buttons itself, and a mode LED
+		led_groups &= ~G_MODES;	// note from the host (0x1E, its PAD FX1) switches its pad mode
+		fprintf(stderr, "azbridge: DDJ-400, the pad mode LEDs are left to the unit\n");
+	}
 	mc_shm_open();
 
 	struct sockaddr_un a = { .sun_family = AF_UNIX };
