@@ -49,6 +49,7 @@ for n in usb1 usb2 sd1 nfs usbctn1 usbg1; do : > "$STATE/tmp/udev/udev_$n"; done
 # What the deck's wlan-monitor.sh leaves when it finds no Wi-Fi module. The
 # player waits up to 20 s for the country code at start.
 printf XX > "$STATE/tmp/ccode"
+[ -n "${AZ_OPEN_LOG:-}" ] && : > "$STATE/tmp/open.log"	# AZ_OPEN_LOG=1: azshim lists every open
 printf 00:00:00:00:00:00 > "$STATE/tmp/mlan0Addr"
 # USB sticks, inserted and pulled while the player runs: xdjaz-usb.sh (root)
 # mounts them read-only under /run/xdjaz-media, the player's /media/usb, and
@@ -323,6 +324,7 @@ ${STRACE:-} bwrap \
   --ro-bind "$ASOUND" /etc/asound.conf \
   --setenv AZ_SCALE8 "${AZ_SCALE8:-$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)}" \
   --setenv LD_PRELOAD $PRELOAD \
+  ${AZ_OPEN_LOG:+--setenv AZ_OPEN_LOG /tmp/open.log} \
   $USBBIND $KEYBIND $MODBIND $NETBIND ${GUARD:-} \
   --setenv DISPLAY $DISP \
   --setenv HOME /home/root \

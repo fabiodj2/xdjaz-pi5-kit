@@ -124,6 +124,25 @@ static int event_open(const char *path, int flags)
 	return p[0];
 }
 
+// AZ_OPEN_LOG=file: every open the player makes is appended there (path, flags, result,
+// errno), to find what a screen reads that the Pi does not have. Off when unset.
+static int open_log_fd = -2;
+
+static void open_log(const char *path, int flags, int ret, int err)
+{
+	if (open_log_fd == -2) {
+		const char *f = getenv("AZ_OPEN_LOG");
+		open_log_fd = f ? (int)syscall(SYS_openat, AT_FDCWD, f,
+					       O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644) : -1;
+	}
+	if (open_log_fd < 0 || !path)
+		return;
+	char line[640];
+	int n = snprintf(line, sizeof(line), "%s\t%#x\t%d\t%d\n", path, flags, ret, ret < 0 ? err : 0);
+	if (n > 0)
+		syscall(SYS_write, open_log_fd, line, n < (int)sizeof(line) ? n : (int)sizeof(line) - 1);
+}
+
 static int sys_open(const char *path, int flags, mode_t mode)
 {
 	char buf[512];
@@ -131,7 +150,11 @@ static int sys_open(const char *path, int flags, mode_t mode)
 	if (to != path && (flags & O_ACCMODE) == O_RDONLY &&
 	    strncmp(path, EVENT_PREFIX, strlen(EVENT_PREFIX)) == 0)
 		return event_open(to, flags);
-	return (int)syscall(SYS_openat, AT_FDCWD, to, flags, mode);
+	int r = (int)syscall(SYS_openat, AT_FDCWD, to, flags, mode);
+	int e = errno;
+	open_log(path, flags, r, e);
+	errno = e;
+	return r;
 }
 
 #define UCOM_PREFIX	"/dev/subucom_"
