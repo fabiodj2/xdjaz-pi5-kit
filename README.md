@@ -123,6 +123,13 @@ not touched.
   `AZ_SCREEN=1024x640`, `AZ_SCALE8=6.12`, `AZ_TOPBAR=28`. (A 40 px bar with `AZ_SCALE8=6` gives the
   exact 0.75, 960x600.)
   The BEAT FX zones move with the window (`src/touch/bfx.zones.example`).
+- **Bluetooth (experimental, `AZ_BT=1`).** The player has its own Bluetooth stack that speaks HCI to
+  the chip over a serial port, `/dev/ttyS0`, which the Pi does not have. `bt/azbt.py` (root) takes the
+  Pi's `hci0` in raw "user channel" mode (the Pi's own Bluetooth is stopped while it runs), makes a
+  pseudo terminal and carries the packets both ways; `run-probe.sh` binds it into the sandbox as
+  `/dev/ttyS0`. The other chip's vendor commands (OGF 0x3F) are answered by the bridge. What the
+  player sends is logged in `/opt/xdjaz/bt/azbt.log`. Not working end to end yet: the pairing
+  screens and the audio path (the Bluetooth input of CH3/CH4) are still to be seen working.
 - **BEAT FX channel on the DDJ-400.** Its FX CH SELECT switch (CH1 / CH2 / MASTER) is the
   AZ's CH SELECT for the beat FX: the effect goes to channel 1, channel 2 or the master.
 - **VINYL SPEED ADJUST on the DDJ-400.** SHIFT + PLAY (note 0x47 of the deck) presses the AZ's

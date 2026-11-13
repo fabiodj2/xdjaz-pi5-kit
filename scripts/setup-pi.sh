@@ -112,8 +112,11 @@ install -m 755 "$SRC/strip/azdrop.py" "$OPT/strip/azdrop.py"
 install -m 755 "$SRC/wifi/azwifi.py" "$OPT/wifi/azwifi.py"
 # the player's UI thread on a core of its own (AZ_PIN, run-probe.sh)
 install -m 755 "$SRC/pin/azpin.py" "$OPT/pin/azpin.py"
+# the Pi's Bluetooth controller as the player's /dev/ttyS0 (AZ_BT=1, run-probe.sh)
+install -d "$OPT/bt"
+install -m 755 "$SRC/bt/azbt.py" "$OPT/bt/azbt.py"
 # the logs the pieces write next to themselves
-chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync" "$OPT/strip"
+chown "$RUNAS:" "$OPT" "$OPT/bridge" "$OPT/vsync" "$OPT/strip" "$OPT/bt"
 
 if [ -n "$KEY" ]; then
     step "OneLibrary key"

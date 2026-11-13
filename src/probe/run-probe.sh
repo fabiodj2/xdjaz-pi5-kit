@@ -101,6 +101,20 @@ if [ "${AZMODS:-1}" != 0 ] && [ -r /opt/xdjaz/azmod/azmod.so ]; then
   fi
 fi
 
+# Bluetooth (AZ_BT=1, default off): the player carries its own Bluetooth stack and opens
+# /dev/ttyS0 to speak HCI to the chip. bt/azbt.py (root) takes the Pi's hci0 in user-channel mode
+# (the kernel's Bluetooth, bluetoothd with it, lets go of it) and offers it as a pty, which is
+# bound into the sandbox as /dev/ttyS0. Its log: /opt/xdjaz/bt/azbt.log.
+BTBIND=""
+if [ "${AZ_BT:-0}" = 1 ] && [ -f /opt/xdjaz/bt/azbt.py ]; then
+  if ! pgrep -f "bt/azbt[.]py" >/dev/null; then
+    rm -f "$STATE/ttyBT.path"
+    sudo STATE="$STATE" setsid python3 /opt/xdjaz/bt/azbt.py ${AZ_BT_HCI:-0} > /opt/xdjaz/bt/azbt.log 2>&1 < /dev/null &
+  fi
+  for i in $(seq 50); do [ -s "$STATE/ttyBT.path" ] && break; sleep 0.1; done
+  [ -s "$STATE/ttyBT.path" ] && BTBIND="--dev-bind $(cat "$STATE/ttyBT.path") /dev/ttyS0"
+fi
+
 # OneLibrary key for azshim's sqlite3_key hook (user-supplied, kept outside the tree)
 KEYBIND=""
 [ -r /opt/xdjaz/keys/onelibrary.key ] && KEYBIND="--ro-bind /opt/xdjaz/keys/onelibrary.key /etc/azshim/onelibrary.key"
@@ -346,7 +360,7 @@ ${STRACE:-} bwrap \
   --setenv AZ_SCALE8 "${AZ_SCALE8:-$(case "${PANEL:-}" in stretch|fit) echo 6.4;; juce) echo 6;; *) echo 8;; esac)}" \
   --setenv LD_PRELOAD $PRELOAD \
   ${AZ_OPEN_LOG:+--setenv AZ_OPEN_LOG /tmp/open.log} \
-  $USBBIND $KEYBIND $MODBIND $NETBIND ${GUARD:-} \
+  $USBBIND $KEYBIND $MODBIND $NETBIND $BTBIND ${GUARD:-} \
   --setenv DISPLAY $DISP \
   --setenv HOME /home/root \
   --setenv PATH /usr/bin:/bin:/usr/sbin:/sbin \
@@ -499,7 +513,7 @@ if kill -0 $BPID 2>/dev/null; then echo "still running after ${T}s"; kill -INT $
 wait $BPID; RC=$?; echo "exit=$RC"
 sudo pkill -f "pin/azpin[.]py"	# gives the threads all cores back
 if [ "${XORG:-0}" = 1 ]; then
-  [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -f "strip/azdrop[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; }
+  [ "${KEEPX:-0}" = 1 ] || { pkill -f "strip/azstrip[.]py"; pkill -f "strip/azdrop[.]py"; pkill -x picom; pkill -x azvsync; sudo pkill -x xdjaz-usb.sh; sudo pkill -f "Xorg $DISP vt"; sudo pkill -x aztouch; sudo pkill -f "bt/azbt[.]py"; }
 else
   pkill -f "Xvfb $DISP"
 fi
